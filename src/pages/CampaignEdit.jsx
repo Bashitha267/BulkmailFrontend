@@ -15,12 +15,15 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { campaignsApi } from '../services/api';
+import { Spinner } from '../components/Skeleton';
 
 export default function CampaignEdit() {
   const navigate = useNavigate();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
-  const { groups, segments, contacts, templates, setIsNewGroupModalOpen } = useApp();
+  const { groups, segments, contacts, templates, setIsNewGroupModalOpen, notify } = useApp();
+  const [sendingTest, setSendingTest] = useState(false);
 
   const [abTestEnabled, setAbTestEnabled] = useState(true);
   const [subjectA, setSubjectA] = useState('Our December update, {{firstName}}');
@@ -96,6 +99,56 @@ export default function CampaignEdit() {
     }
   };
 
+  const buildCampaignDraft = () => ({
+    title: subjectA.replace(/\{\{\s*firstName\s*\}\}/gi, '').replace(/,\s*$/, '').trim() || 'New campaign',
+    subjectA,
+    subjectB,
+    abTest: abTestEnabled,
+    previewText,
+    fromName,
+    fromEmail,
+    replyTo,
+    selectedGroups,
+    templateStrategy,
+    selectedTemplateId,
+    groupTemplateMap,
+    sendSchedule,
+    scheduledDate: `${scheduleDate}, ${scheduleTime}`,
+  });
+
+  const handleReviewAndSend = () => {
+    navigate(`/campaigns/${id || 'new'}/review`, {
+      state: { campaignDraft: buildCampaignDraft() },
+    });
+  };
+
+  const handleSendTest = async () => {
+    if (testEmails.length === 0) {
+      notify({ type: 'warning', message: 'Add at least one test email address.' });
+      return;
+    }
+    setSendingTest(true);
+    try {
+      const res = await campaignsApi.sendTest({
+        emails: testEmails,
+        subject: subjectA,
+        previewText,
+        fromName,
+        fromEmail,
+        templateId: selectedTemplateId,
+      });
+      notify({
+        type: 'success',
+        title: 'Test email sent',
+        message: `Dispatched to ${res.sentCount} recipient(s) via ${res.simulated ? 'SES Simulation' : 'Amazon SES'}.`,
+      });
+    } catch (err) {
+      notify({ type: 'error', title: 'Test send failed', message: err.message });
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Top Header */}
@@ -123,7 +176,7 @@ export default function CampaignEdit() {
             Save and close
           </button>
           <button
-            onClick={() => navigate(`/campaigns/${id || 'december-newsletter'}/review`)}
+            onClick={handleReviewAndSend}
             className="px-4 py-2 rounded-xl text-xs font-bold bg-black text-white hover:bg-zinc-800 transition-colors shadow-sm"
           >
             Review and send &gt;
@@ -272,7 +325,57 @@ export default function CampaignEdit() {
                   { name: 'Beta testers', count: 87 }
                 ].map((grp) => {
                   const isChecked = selectedGroups.includes(grp.name);
-                  return (
+                  const buildCampaignDraft = () => ({
+    title: subjectA.replace(/\{\{\s*firstName\s*\}\}/gi, '').replace(/,\s*$/, '').trim() || 'New campaign',
+    subjectA,
+    subjectB,
+    abTest: abTestEnabled,
+    previewText,
+    fromName,
+    fromEmail,
+    replyTo,
+    selectedGroups,
+    templateStrategy,
+    selectedTemplateId,
+    groupTemplateMap,
+    sendSchedule,
+    scheduledDate: `${scheduleDate}, ${scheduleTime}`,
+  });
+
+  const handleReviewAndSend = () => {
+    navigate(`/campaigns/${id || 'new'}/review`, {
+      state: { campaignDraft: buildCampaignDraft() },
+    });
+  };
+
+  const handleSendTest = async () => {
+    if (testEmails.length === 0) {
+      notify({ type: 'warning', message: 'Add at least one test email address.' });
+      return;
+    }
+    setSendingTest(true);
+    try {
+      const res = await campaignsApi.sendTest({
+        emails: testEmails,
+        subject: subjectA,
+        previewText,
+        fromName,
+        fromEmail,
+        templateId: selectedTemplateId,
+      });
+      notify({
+        type: 'success',
+        title: 'Test email sent',
+        message: `Dispatched to ${res.sentCount} recipient(s) via ${res.simulated ? 'SES Simulation' : 'Amazon SES'}.`,
+      });
+    } catch (err) {
+      notify({ type: 'error', title: 'Test send failed', message: err.message });
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
+  return (
                     <div
                       key={grp.name}
                       onClick={() => toggleGroup(grp.name)}
@@ -307,7 +410,57 @@ export default function CampaignEdit() {
                   { name: 'Pro plan in Colombo', count: 86 }
                 ].map((seg) => {
                   const isChecked = selectedSegments.includes(seg.name);
-                  return (
+                  const buildCampaignDraft = () => ({
+    title: subjectA.replace(/\{\{\s*firstName\s*\}\}/gi, '').replace(/,\s*$/, '').trim() || 'New campaign',
+    subjectA,
+    subjectB,
+    abTest: abTestEnabled,
+    previewText,
+    fromName,
+    fromEmail,
+    replyTo,
+    selectedGroups,
+    templateStrategy,
+    selectedTemplateId,
+    groupTemplateMap,
+    sendSchedule,
+    scheduledDate: `${scheduleDate}, ${scheduleTime}`,
+  });
+
+  const handleReviewAndSend = () => {
+    navigate(`/campaigns/${id || 'new'}/review`, {
+      state: { campaignDraft: buildCampaignDraft() },
+    });
+  };
+
+  const handleSendTest = async () => {
+    if (testEmails.length === 0) {
+      notify({ type: 'warning', message: 'Add at least one test email address.' });
+      return;
+    }
+    setSendingTest(true);
+    try {
+      const res = await campaignsApi.sendTest({
+        emails: testEmails,
+        subject: subjectA,
+        previewText,
+        fromName,
+        fromEmail,
+        templateId: selectedTemplateId,
+      });
+      notify({
+        type: 'success',
+        title: 'Test email sent',
+        message: `Dispatched to ${res.sentCount} recipient(s) via ${res.simulated ? 'SES Simulation' : 'Amazon SES'}.`,
+      });
+    } catch (err) {
+      notify({ type: 'error', title: 'Test send failed', message: err.message });
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
+  return (
                     <div
                       key={seg.name}
                       onClick={() => toggleSegment(seg.name)}
@@ -651,18 +804,19 @@ export default function CampaignEdit() {
 
             <button
               type="button"
-              onClick={() => alert(`Test email dispatched to ${testEmails.length} recipients!`)}
-              className="w-full py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-xs font-bold text-gray-800 flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
+              disabled={sendingTest}
+              onClick={handleSendTest}
+              className="w-full py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-60 text-xs font-bold text-gray-800 flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
             >
-              <Send className="w-3.5 h-3.5" />
-              <span>Send test to {testEmails.length} people</span>
+              {sendingTest ? <Spinner className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+              <span>{sendingTest ? 'Sending test...' : `Send test to ${testEmails.length} people`}</span>
             </button>
           </div>
 
           {/* Primary Review and Send CTA */}
           <button
             type="button"
-            onClick={() => navigate(`/campaigns/${id || 'december-newsletter'}/review`)}
+            onClick={handleReviewAndSend}
             className="w-full py-3 rounded-2xl bg-black text-white hover:bg-zinc-800 text-xs font-bold transition-all shadow-md active:scale-[0.99]"
           >
             Review and send

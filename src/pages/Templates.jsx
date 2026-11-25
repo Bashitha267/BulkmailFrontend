@@ -23,14 +23,20 @@ import {
   Code2,
   FileText,
   Eye,
-  CheckCircle2
+  CheckCircle2,
+  Plus,
+  Save
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { uploadsApi } from '../services/api';
+import { Spinner, DashboardSkeleton } from '../components/Skeleton';
 
 export default function Templates() {
   const navigate = useNavigate();
-  const { templates } = useApp();
+  const { templates, dataLoading, updateTemplate, createTemplate, notify } = useApp();
   const [activeTemplateId, setActiveTemplateId] = useState('monthly-newsletter');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
 
   const [editorMode, setEditorMode] = useState('Visual'); // 'Visual', 'HTML', 'Plain text'
   const [devicePreview, setDevicePreview] = useState('Desktop'); // 'Desktop' or 'Mobile'
@@ -221,6 +227,45 @@ export default function Templates() {
     setSelectedBlockId('b3');
   };
 
+  const handleSaveTemplate = async () => {
+    setSavingTemplate(true);
+    try {
+      const headingBlock = blocks.find((b) => b.type === 'heading');
+      const textBlock = blocks.find((b) => b.type === 'text');
+      const btnBlock = blocks.find((b) => b.type === 'button');
+      await updateTemplate(activeTemplateId, {
+        subject,
+        previewText,
+        heading: headingBlock?.content || 'Hello {{firstName}}',
+        body: textBlock?.content || '',
+        ctaLabel: btnBlock?.label || 'Read more',
+        ctaUrl: btnBlock?.link || 'https://example.com',
+        ctaColor: btnBlock?.color || '#111111',
+        blocks,
+      });
+      setSaveStatus('Saved to server · Just now');
+    } catch (err) {
+      notify({ type: 'error', title: 'Save failed', message: err.message });
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const handleNewTemplate = async () => {
+    const name = window.prompt('Enter new template name:', 'Special Announcement');
+    if (!name || !name.trim()) return;
+    try {
+      const created = await createTemplate({ name: name.trim() });
+      handleSwitchTemplate(created.id);
+    } catch (err) {
+      notify({ type: 'error', message: err.message });
+    }
+  };
+
+  if (dataLoading && templates.length === 0) {
+    return <DashboardSkeleton />;
+  }
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Top Header */}
@@ -266,12 +311,23 @@ export default function Templates() {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
           <button
-            onClick={() => alert(`Test email sent with Subject: "${renderInterpolated(subject)}"`)}
-            className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white text-gray-800 border border-gray-200 hover:bg-gray-50 transition-colors shadow-2xs"
+            type="button"
+            onClick={handleNewTemplate}
+            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white text-gray-800 border border-gray-200 hover:bg-gray-50 transition-colors shadow-2xs flex items-center gap-1"
           >
-            Send test
+            <Plus className="w-3.5 h-3.5" />
+            <span>New</span>
+          </button>
+          <button
+            type="button"
+            disabled={savingTemplate}
+            onClick={handleSaveTemplate}
+            className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white text-gray-800 border border-gray-200 hover:bg-gray-50 transition-colors shadow-2xs flex items-center gap-1.5"
+          >
+            {savingTemplate ? <Spinner className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+            <span>{savingTemplate ? 'Saving...' : 'Save'}</span>
           </button>
           <button
             onClick={() => navigate(`/campaigns/new?template=${activeTemplateId}`)}
@@ -353,7 +409,46 @@ export default function Templates() {
                 {blocks.map((block) => {
                   const isSelected = selectedBlockId === block.id;
 
-                  return (
+                  const handleSaveTemplate = async () => {
+    setSavingTemplate(true);
+    try {
+      const headingBlock = blocks.find((b) => b.type === 'heading');
+      const textBlock = blocks.find((b) => b.type === 'text');
+      const btnBlock = blocks.find((b) => b.type === 'button');
+      await updateTemplate(activeTemplateId, {
+        subject,
+        previewText,
+        heading: headingBlock?.content || 'Hello {{firstName}}',
+        body: textBlock?.content || '',
+        ctaLabel: btnBlock?.label || 'Read more',
+        ctaUrl: btnBlock?.link || 'https://example.com',
+        ctaColor: btnBlock?.color || '#111111',
+        blocks,
+      });
+      setSaveStatus('Saved to server · Just now');
+    } catch (err) {
+      notify({ type: 'error', title: 'Save failed', message: err.message });
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const handleNewTemplate = async () => {
+    const name = window.prompt('Enter new template name:', 'Special Announcement');
+    if (!name || !name.trim()) return;
+    try {
+      const created = await createTemplate({ name: name.trim() });
+      handleSwitchTemplate(created.id);
+    } catch (err) {
+      notify({ type: 'error', message: err.message });
+    }
+  };
+
+  if (dataLoading && templates.length === 0) {
+    return <DashboardSkeleton />;
+  }
+
+  return (
                     <div 
                       key={block.id}
                       onClick={() => setSelectedBlockId(block.id)}
@@ -652,27 +747,36 @@ export default function Templates() {
               {selectedBlock?.type === 'image' && (
                 <div className="space-y-3 text-xs">
                   <div>
-                    <label className="block text-[11px] font-semibold text-gray-500 mb-1">Upload Image (Preview)</label>
+                    <label className="block text-[11px] font-semibold text-gray-500 mb-1">Upload Image to Server</label>
                     <label className="w-full py-2 px-3 rounded-xl bg-black text-white hover:bg-zinc-800 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors">
-                      <ImageIcon className="w-3.5 h-3.5" />
-                      <span>Choose image from device</span>
+                      {uploadingImage ? <Spinner className="w-3.5 h-3.5" /> : <ImageIcon className="w-3.5 h-3.5" />}
+                      <span>{uploadingImage ? 'Uploading to server...' : 'Choose & upload image'}</span>
                       <input
                         type="file"
                         accept="image/*"
+                        disabled={uploadingImage}
                         className="hidden"
-                        onChange={(e) => {
+                        onChange={async (e) => {
                           const file = e.target.files?.[0];
                           if (!file) return;
-                          const localPreviewUrl = URL.createObjectURL(file);
-                          updateSelectedBlock({
-                            url: localPreviewUrl,
-                            alt: selectedBlock.alt || file.name.replace(/\.[^/.]+$/, '')
-                          });
+                          setUploadingImage(true);
+                          try {
+                            const res = await uploadsApi.uploadImage(file);
+                            updateSelectedBlock({
+                              url: res.url,
+                              alt: selectedBlock.alt || file.name.replace(/\.[^/.]+$/, '')
+                            });
+                            notify({ type: 'success', title: 'Image uploaded', message: 'Public URL inserted into template.' });
+                          } catch (err) {
+                            notify({ type: 'error', title: 'Upload failed', message: err.message });
+                          } finally {
+                            setUploadingImage(false);
+                          }
                         }}
                       />
                     </label>
                     <p className="text-[10.5px] text-gray-400 mt-1">
-                      In production, this will upload to your Node.js server and insert the public HTTPS URL.
+                      Saves to your Node.js server (/uploads) and inserts the public link.
                     </p>
                   </div>
 

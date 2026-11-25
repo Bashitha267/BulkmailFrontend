@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
+import { TableSkeleton } from '../components/Skeleton';
 import { 
   Users, 
   CheckCircle2, 
@@ -17,19 +18,28 @@ import {
 } from 'lucide-react';
 
 export default function Contacts() {
-  const { contacts, setIsImportModalOpen, setIsAddContactModalOpen } = useApp();
+  const { contacts, groups, segments, dataLoading, notify, setIsImportModalOpen, setIsAddContactModalOpen } = useApp();
   const navigate = useNavigate();
 
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
 
+  if (dataLoading) {
+    return <TableSkeleton rows={7} />;
+  }
+
+  const canReceiveCount = contacts.filter((c) => c.status === 'Subscribed').length;
+  const unsubCount = contacts.filter((c) => c.status === 'Unsubscribed').length;
+  const bouncedCount = contacts.filter((c) => c.status === 'Bounced').length;
+  const complainedCount = contacts.filter((c) => c.status === 'Complained').length;
+
   const filterTabs = [
-    { label: 'All', count: '1,200' },
-    { label: 'Can receive', count: '1,129' },
-    { label: 'Unsubscribed', count: '41' },
-    { label: 'Bounced', count: '29' },
-    { label: 'Complained', count: '1' },
-    { label: 'Groups & segments', count: '7', isSpecial: true },
+    { label: 'All', count: String(contacts.length) },
+    { label: 'Can receive', count: String(canReceiveCount) },
+    { label: 'Unsubscribed', count: String(unsubCount) },
+    { label: 'Bounced', count: String(bouncedCount) },
+    { label: 'Complained', count: String(complainedCount) },
+    { label: 'Groups & segments', count: String(groups.length + segments.length), isSpecial: true },
   ];
 
   const filteredContacts = contacts.filter(contact => {
@@ -67,7 +77,17 @@ export default function Contacts() {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => alert('Exporting contacts to CSV...')}
+            onClick={() => {
+              const csv = ['Name,Email,City,Plan,Status', ...contacts.map((c) => `"${c.name}","${c.email}","${c.city}","${c.plan}","${c.status}"`)].join('\n');
+              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'contacts-export.csv';
+              a.click();
+              URL.revokeObjectURL(url);
+              notify({ type: 'success', message: `Exported ${contacts.length} contacts to CSV.` });
+            }}
             className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white text-gray-800 border border-gray-200 hover:bg-gray-50 flex items-center gap-1.5 transition-colors shadow-2xs"
           >
             <Download className="w-3.5 h-3.5 text-gray-500" />
@@ -101,7 +121,7 @@ export default function Contacts() {
               <Users className="w-3.5 h-3.5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">1,200</p>
+          <p className="text-2xl font-bold text-gray-900">{contacts.length}</p>
         </div>
 
         <div className="bg-white border border-gray-100 rounded-3xl p-4 shadow-2xs">
@@ -111,7 +131,7 @@ export default function Contacts() {
               <CheckCircle2 className="w-3.5 h-3.5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">1,129</p>
+          <p className="text-2xl font-bold text-gray-900">{canReceiveCount}</p>
         </div>
 
         <div className="bg-white border border-gray-100 rounded-3xl p-4 shadow-2xs">
@@ -121,7 +141,7 @@ export default function Contacts() {
               <UserX className="w-3.5 h-3.5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">41</p>
+          <p className="text-2xl font-bold text-gray-900">{unsubCount}</p>
         </div>
 
         <div className="bg-white border border-gray-100 rounded-3xl p-4 shadow-2xs">
@@ -131,7 +151,7 @@ export default function Contacts() {
               <RotateCcw className="w-3.5 h-3.5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">29</p>
+          <p className="text-2xl font-bold text-gray-900">{bouncedCount}</p>
         </div>
 
         <div className="bg-white border border-gray-100 rounded-3xl p-4 shadow-2xs col-span-2 sm:col-span-1">
@@ -141,7 +161,7 @@ export default function Contacts() {
               <Flag className="w-3.5 h-3.5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">1</p>
+          <p className="text-2xl font-bold text-gray-900">{complainedCount}</p>
         </div>
       </div>
 
@@ -319,7 +339,7 @@ export default function Contacts() {
 
         {/* Pagination Footer */}
         <div className="p-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500 bg-[#fafafa]">
-          <span>Showing 1–10 of 1,200 contacts</span>
+          <span>Showing {filteredContacts.length === 0 ? 0 : 1}–{filteredContacts.length} of {contacts.length} contacts</span>
           <div className="flex items-center gap-2">
             <button 
               disabled 

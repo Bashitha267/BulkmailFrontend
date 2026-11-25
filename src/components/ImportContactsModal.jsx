@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Check, Upload, FileSpreadsheet, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { Spinner } from './Skeleton';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -80,9 +81,10 @@ function guessMapping(header) {
 }
 
 export default function ImportContactsModal({ isOpen, onClose }) {
-  const { contacts, groups, addImportedContacts } = useApp();
+  const { contacts, groups, addImportedContacts, notify } = useApp();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
+  const [importing, setImporting] = useState(false);
 
   const [fileName, setFileName] = useState('');
   const [headers, setHeaders] = useState([]);
@@ -204,14 +206,14 @@ export default function ImportContactsModal({ isOpen, onClose }) {
     URL.revokeObjectURL(url);
   };
 
-  const handleImport = () => {
+  const handleImport = async () => {
     if (!agreedConsent) {
-      alert('Please confirm consent compliance before importing.');
+      notify({ type: 'warning', message: 'Please confirm consent compliance before importing.' });
       return;
     }
 
     if (validation.ready.length === 0) {
-      alert('No valid new contacts to import.');
+      notify({ type: 'warning', message: 'No valid new contacts to import.' });
       return;
     }
 
@@ -272,10 +274,17 @@ export default function ImportContactsModal({ isOpen, onClose }) {
       };
     });
 
-    addImportedContacts(newContacts);
-    resetFile();
-    onClose();
-    navigate('/contacts');
+    setImporting(true);
+    try {
+      await addImportedContacts(newContacts);
+      resetFile();
+      onClose();
+      navigate('/contacts');
+    } catch (err) {
+      notify({ type: 'error', title: 'Import failed', message: err.message });
+    } finally {
+      setImporting(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -621,13 +630,14 @@ export default function ImportContactsModal({ isOpen, onClose }) {
               <button
                 type="button"
                 onClick={handleImport}
-                disabled={validation.ready.length === 0 || !agreedConsent}
+                disabled={validation.ready.length === 0 || !agreedConsent || importing}
                 className="px-4 py-2 rounded-xl text-xs font-semibold bg-black text-white hover:bg-zinc-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-1.5 shadow-sm"
               >
-                <Upload className="w-3.5 h-3.5" />
+                {importing ? <Spinner className="w-3.5 h-3.5" /> : <Upload className="w-3.5 h-3.5" />}
                 <span>
-                  Import {validation.ready.length}{' '}
-                  {validation.ready.length === 1 ? 'contact' : 'contacts'}
+                  {importing
+                    ? 'Importing...'
+                    : `Import ${validation.ready.length} ${validation.ready.length === 1 ? 'contact' : 'contacts'}`}
                 </span>
               </button>
             )}

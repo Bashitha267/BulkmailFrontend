@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { 
   ArrowLeft, 
   CheckCircle2, 
@@ -10,19 +10,49 @@ import {
   ShieldAlert, 
   ExternalLink 
 } from 'lucide-react';
+import { useApp } from '../context/AppContext';
+import { Spinner } from '../components/Skeleton';
 
 export default function CampaignReview() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const [isCheckedConfirmation, setIsCheckedConfirmation] = useState(true);
+  const location = useLocation();
+  const { createCampaign, notify } = useApp();
 
-  const handleSchedule = () => {
+  const draft = location.state?.campaignDraft || {
+    title: 'December newsletter',
+    subjectA: 'Our December update, {{firstName}}',
+    subjectB: 'December at Acme: 3 things you’ll like',
+    abTest: true,
+    previewText: 'Our favourite updates from this year',
+    fromName: 'Acme Team',
+    fromEmail: 'news@acme.example.com',
+    replyTo: 'support@acme.example.com',
+    selectedGroups: ['Newsletter', 'Customers'],
+    templateStrategy: 'same',
+    selectedTemplateId: 'monthly-newsletter',
+    sendSchedule: 'now',
+    scheduledDate: 'Tue 1 Dec 2026, 9:00 am',
+  };
+
+  const [isCheckedConfirmation, setIsCheckedConfirmation] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSchedule = async () => {
     if (!isCheckedConfirmation) {
-      alert('Please confirm that you have checked the test email.');
+      notify({ type: 'warning', message: 'Please confirm that you have checked the test email.' });
       return;
     }
-    alert('Campaign successfully scheduled for 1 Dec, 9:00 am!');
-    navigate('/campaigns');
+
+    setSubmitting(true);
+    try {
+      const created = await createCampaign(draft);
+      navigate(`/campaigns/${created.id}/report`);
+    } catch (err) {
+      notify({ type: 'error', title: 'Could not launch campaign', message: err.message });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -221,11 +251,24 @@ export default function CampaignReview() {
 
             <button
               type="button"
+              disabled={submitting}
               onClick={handleSchedule}
-              className="w-full py-3 rounded-2xl bg-black text-white hover:bg-zinc-800 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-[0.99]"
+              className="w-full py-3 rounded-2xl bg-black text-white hover:bg-zinc-800 disabled:bg-gray-400 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-[0.99]"
             >
-              <Clock className="w-3.5 h-3.5" />
-              <span>Schedule for 1 Dec, 9:00 am</span>
+              {submitting ? (
+                <Spinner className="w-3.5 h-3.5" />
+              ) : draft.sendSchedule === 'now' ? (
+                <Send className="w-3.5 h-3.5" />
+              ) : (
+                <Clock className="w-3.5 h-3.5" />
+              )}
+              <span>
+                {submitting
+                  ? 'Queueing via Amazon SES...'
+                  : draft.sendSchedule === 'now'
+                  ? 'Send now via Amazon SES'
+                  : `Schedule for ${draft.scheduledDate}`}
+              </span>
             </button>
 
             <button

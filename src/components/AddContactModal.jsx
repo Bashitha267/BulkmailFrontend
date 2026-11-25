@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { X, UserPlus, Check } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { Spinner } from './Skeleton';
 
 export default function AddContactModal({ isOpen, onClose }) {
-  const { setContacts, groups } = useApp();
+  const { createContact, groups, notify } = useApp();
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -11,60 +12,54 @@ export default function AddContactModal({ isOpen, onClose }) {
   const [city, setCity] = useState('');
   const [plan, setPlan] = useState('Free');
   const [selectedGroups, setSelectedGroups] = useState(['Newsletter']);
+  const [saving, setSaving] = useState(false);
 
   if (!isOpen) return null;
 
   const toggleGroup = (name) => {
-    setSelectedGroups(prev =>
-      prev.includes(name) ? prev.filter(g => g !== name) : [...prev, name]
+    setSelectedGroups((prev) =>
+      prev.includes(name) ? prev.filter((g) => g !== name) : [...prev, name]
     );
   };
 
-  const handleAddContact = (e) => {
+  const handleAddContact = async (e) => {
     e.preventDefault();
     if (!email.trim() || !firstName.trim()) {
-      alert('First name and email are required.');
+      notify({ type: 'warning', message: 'First name and email are required.' });
       return;
     }
 
-    const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
-    const initials = (firstName[0] || 'U') + (lastName[0] || '');
+    setSaving(true);
+    try {
+      const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+      await createContact({
+        name: fullName,
+        email: email.trim(),
+        city: city.trim() || 'Colombo',
+        plan,
+        groups: selectedGroups,
+        consent: 'Manual entry',
+      });
 
-    const newContact = {
-      id: email.toLowerCase().replace(/[^a-z0-9]/g, '-'),
-      name: fullName,
-      initials: initials.toUpperCase(),
-      email: email.trim(),
-      city: city.trim() || 'Colombo',
-      plan,
-      groups: selectedGroups,
-      consent: 'Manual entry',
-      consentDate: 'Today',
-      lastActivity: 'Added just now',
-      status: 'Subscribed',
-      stats: { received: 0, opened: 0, clicked: 0 },
-      activity: [
-        { id: Date.now(), type: 'group', title: `Added to ${selectedGroups.join(', ')}`, time: 'Just now', category: 'Changes' }
-      ]
-    };
-
-    setContacts(prev => [newContact, ...prev]);
-    alert(`Contact ${fullName} (${email}) added successfully!`);
-    
-    // Reset form
-    setFirstName('');
-    setLastName('');
-    setEmail('');
-    setCity('');
-    setPlan('Free');
-    setSelectedGroups(['Newsletter']);
-    onClose();
+      setFirstName('');
+      setLastName('');
+      setEmail('');
+      setCity('');
+      setPlan('Free');
+      setSelectedGroups(['Newsletter']);
+      onClose();
+    } catch (err) {
+      notify({ type: 'error', title: 'Could not add contact', message: err.message });
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const groupNames = groups.length > 0 ? groups.map((g) => g.name) : ['Newsletter', 'Customers', 'VIP', 'Beta testers'];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-gray-100 flex flex-col">
-        {/* Header */}
         <div className="p-5 pb-3 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-sm z-10">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-black text-white flex items-center justify-center font-bold">
@@ -72,7 +67,7 @@ export default function AddContactModal({ isOpen, onClose }) {
             </div>
             <div>
               <h2 className="text-lg font-bold text-gray-900">Add New Contact</h2>
-              <p className="text-xs text-gray-400">Add subscriber details to your list</p>
+              <p className="text-xs text-gray-400">Saved directly to your backend database</p>
             </div>
           </div>
           <button
@@ -147,11 +142,10 @@ export default function AddContactModal({ isOpen, onClose }) {
             </div>
           </div>
 
-          {/* Groups Selection */}
           <div>
             <label className="block font-bold text-gray-700 mb-1.5">Assign to Groups</label>
             <div className="grid grid-cols-2 gap-2">
-              {['Newsletter', 'Customers', 'VIP', 'Beta testers'].map(grp => {
+              {groupNames.map((grp) => {
                 const isChecked = selectedGroups.includes(grp);
                 return (
                   <div
@@ -161,8 +155,8 @@ export default function AddContactModal({ isOpen, onClose }) {
                       isChecked ? 'bg-black text-white border-black font-bold' : 'bg-[#fafafa] border-gray-200 text-gray-700 font-medium'
                     }`}
                   >
-                    <span>{grp}</span>
-                    <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${isChecked ? 'bg-white text-black' : 'border-gray-400'}`}>
+                    <span className="truncate">{grp}</span>
+                    <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${isChecked ? 'bg-white text-black' : 'border-gray-400'}`}>
                       {isChecked && <Check className="w-2.5 h-2.5 stroke-[3]" />}
                     </div>
                   </div>
@@ -181,9 +175,11 @@ export default function AddContactModal({ isOpen, onClose }) {
             </button>
             <button
               type="submit"
-              className="px-4 py-2 rounded-xl font-bold bg-black text-white hover:bg-zinc-800 transition-all shadow-sm"
+              disabled={saving}
+              className="px-4 py-2 rounded-xl font-bold bg-black text-white hover:bg-zinc-800 disabled:bg-gray-400 transition-all shadow-sm flex items-center gap-1.5"
             >
-              Add Contact
+              {saving && <Spinner className="w-3.5 h-3.5" />}
+              <span>{saving ? 'Adding...' : 'Add Contact'}</span>
             </button>
           </div>
         </form>

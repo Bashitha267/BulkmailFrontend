@@ -17,14 +17,14 @@ import {
 import { useApp } from '../context/AppContext';
 
 export default function Sidebar({ onClose }) {
-  const { user, logout } = useApp();
+  const { user, logout, contacts, templates, campaigns } = useApp();
   const navigate = useNavigate();
 
   const navItems = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { name: 'Contacts', path: '/contacts', icon: Users, badge: '1,200' },
-    { name: 'Templates', path: '/templates', icon: LayoutTemplate, badge: '3', subBadge: 'starters' },
-    { name: 'Campaigns', path: '/campaigns', icon: Send, badge: '6' },
+    { name: 'Contacts', path: '/contacts', icon: Users, badge: String(contacts.length) },
+    { name: 'Templates', path: '/templates', icon: LayoutTemplate, badge: String(templates.length), subBadge: 'starters' },
+    { name: 'Campaigns', path: '/campaigns', icon: Send, badge: String(campaigns.length) },
     { name: 'Automations', path: '/automations', icon: Zap, pill: 'New' },
     { name: 'Analytics', path: '/analytics', icon: BarChart3 },
   ];

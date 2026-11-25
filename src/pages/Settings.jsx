@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
+import { DashboardSkeleton, Spinner } from '../components/Skeleton';
 import { 
   CheckCircle2, 
   Plus, 
@@ -22,25 +23,40 @@ export default function Settings() {
   const navigate = useNavigate();
   const { 
     settings, 
-    setSettings, 
+    dataLoading,
+    saveSettings,
     isSimulationMode, 
     setIsSimulationMode,
     addField,
+    deleteField,
     addSenderEmail,
     addDomain,
-    inviteTeamMember 
+    inviteTeamMember,
+    notify
   } = useApp();
 
+  const [saving, setSaving] = useState(false);
+
   // Controlled SES settings
-  const [sendRate, setSendRate] = useState(settings.ses.sendRate);
-  const [retries, setRetries] = useState(settings.ses.retries);
-  const [dailyLimit, setDailyLimit] = useState(settings.ses.dailyLimit);
+  const [sendRate, setSendRate] = useState(settings.ses?.sendRate || 10);
+  const [retries, setRetries] = useState(settings.ses?.retries || 3);
+  const [dailyLimit, setDailyLimit] = useState(settings.ses?.dailyLimit || '1,000 (warm-up)');
   
   // Controlled Compliance settings
-  const [businessAddress, setBusinessAddress] = useState(settings.compliance.address);
-  const [oneClickUnsub, setOneClickUnsub] = useState(settings.compliance.oneClickUnsubscribe);
-  const [doubleOptIn, setDoubleOptIn] = useState(settings.compliance.doubleOptIn);
-  const [preferencePage, setPreferencePage] = useState(settings.compliance.preferencePage);
+  const [businessAddress, setBusinessAddress] = useState(settings.compliance?.address || '');
+  const [oneClickUnsub, setOneClickUnsub] = useState(settings.compliance?.oneClickUnsubscribe ?? true);
+  const [doubleOptIn, setDoubleOptIn] = useState(settings.compliance?.doubleOptIn ?? true);
+  const [preferencePage, setPreferencePage] = useState(settings.compliance?.preferencePage ?? true);
+
+  useEffect(() => {
+    setSendRate(settings.ses?.sendRate || 10);
+    setRetries(settings.ses?.retries || 3);
+    setDailyLimit(settings.ses?.dailyLimit || '1,000 (warm-up)');
+    setBusinessAddress(settings.compliance?.address || '');
+    setOneClickUnsub(settings.compliance?.oneClickUnsubscribe ?? true);
+    setDoubleOptIn(settings.compliance?.doubleOptIn ?? true);
+    setPreferencePage(settings.compliance?.preferencePage ?? true);
+  }, [settings]);
 
   // Add Field State
   const [showAddFieldModal, setShowAddFieldModal] = useState(false);
@@ -63,25 +79,33 @@ export default function Settings() {
 
   const [savedSuccess, setSavedSuccess] = useState(false);
 
-  const handleSave = () => {
-    setSettings(prev => ({
-      ...prev,
-      ses: {
-        ...prev.ses,
-        sendRate: Number(sendRate),
-        retries: Number(retries),
-        dailyLimit
-      },
-      compliance: {
-        ...prev.compliance,
-        address: businessAddress,
-        oneClickUnsubscribe: oneClickUnsub,
-        doubleOptIn: doubleOptIn,
-        preferencePage: preferencePage
-      }
-    }));
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 2500);
+  if (dataLoading && settings.senders.length === 0) {
+    return <DashboardSkeleton />;
+  }
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await saveSettings({
+        ses: {
+          sendRate: Number(sendRate),
+          retries: Number(retries),
+          dailyLimit
+        },
+        compliance: {
+          address: businessAddress,
+          oneClickUnsubscribe: oneClickUnsub,
+          doubleOptIn: doubleOptIn,
+          preferencePage: preferencePage
+        }
+      });
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 2500);
+    } catch (err) {
+      notify({ type: 'error', message: err.message });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCreateField = (e) => {
@@ -99,11 +123,8 @@ export default function Settings() {
     setShowAddFieldModal(false);
   };
 
-  const handleDeleteField = (fieldName) => {
-    setSettings(prev => ({
-      ...prev,
-      fields: prev.fields.filter(f => f.name !== fieldName)
-    }));
+  const handleDeleteField = (fieldNameOrId) => {
+    deleteField(fieldNameOrId);
   };
 
   const handleCreateSender = (e) => {
@@ -150,11 +171,12 @@ export default function Settings() {
 
         <button
           type="button"
+          disabled={saving}
           onClick={handleSave}
-          className="px-4 py-2 rounded-xl text-xs font-bold bg-black text-white hover:bg-zinc-800 transition-colors shadow-sm self-start sm:self-auto flex items-center gap-1.5"
+          className="px-4 py-2 rounded-xl text-xs font-bold bg-black text-white hover:bg-zinc-800 disabled:bg-gray-400 transition-colors shadow-sm self-start sm:self-auto flex items-center gap-1.5"
         >
-          <CheckCircle2 className="w-3.5 h-3.5" />
-          <span>Save changes</span>
+          {saving ? <Spinner className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+          <span>{saving ? 'Saving...' : 'Save changes'}</span>
         </button>
       </div>
 

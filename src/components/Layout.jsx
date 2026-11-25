@@ -69,54 +69,6 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-[#f4f5f7] flex flex-col antialiased text-gray-900 font-sans pb-16 md:pb-0">
-      {/* Top Demo & Helper Banner (Responsive wrapping) */}
-      <div className="bg-black text-white px-3 py-1.5 text-xs flex items-center justify-between flex-wrap gap-2 border-b border-zinc-800">
-        <div className="flex items-center gap-2 sm:gap-3">
-          <span className="font-bold flex items-center gap-1.5 text-amber-300 text-[11px] sm:text-xs">
-            <Sparkles className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden xs:inline">Bulk Mailer</span> Preview
-          </span>
-          <span className="text-zinc-600 hidden sm:inline">|</span>
-          
-          {/* Quick toggle between Page 1 (Empty Onboarding) & Page 2 (Live Dashboard) */}
-          <div className="flex items-center gap-1 bg-zinc-900 rounded-lg p-0.5 border border-zinc-800">
-            <button
-              onClick={() => setDashboardMode('live')}
-              className={`px-2 py-0.5 rounded text-[10.5px] sm:text-[11px] font-semibold transition-colors ${
-                dashboardMode === 'live' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              Live
-            </button>
-            <button
-              onClick={() => setDashboardMode('empty')}
-              className={`px-2 py-0.5 rounded text-[10.5px] sm:text-[11px] font-semibold transition-colors ${
-                dashboardMode === 'empty' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              Onboarding
-            </button>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 sm:gap-3 text-[10.5px] sm:text-[11px]">
-          <Link
-            to="/preferences"
-            className="text-zinc-300 hover:text-white hidden sm:flex items-center gap-1 font-medium"
-          >
-            <span>Preference Center</span>
-            <ExternalLink className="w-3 h-3 text-zinc-400" />
-          </Link>
-          <button
-            onClick={() => setIsHostingerModalOpen(true)}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded-lg font-semibold flex items-center gap-1 transition-colors"
-          >
-            <Server className="w-3 h-3" />
-            <span>Hostinger Info</span>
-          </button>
-        </div>
-      </div>
-
       {/* Mobile Top App Bar (visible on md:hidden) */}
       <div className="md:hidden bg-white border-b border-gray-200/80 px-4 py-2.5 flex items-center justify-between sticky top-0 z-30 shadow-2xs">
         <div className="flex items-center gap-2.5">

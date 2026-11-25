@@ -1,23 +1,100 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { 
   ArrowLeft, 
   Pause, 
   Play, 
-  Copy, 
-  XOctagon, 
   Link as LinkIcon, 
-  AlertCircle, 
-  RotateCw, 
-  Eye, 
-  Clock 
+  CheckCircle2 
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { campaignsApi } from '../services/api';
+import { DashboardSkeleton, Spinner } from '../components/Skeleton';
 
 export default function CampaignReport() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { resumeCampaign } = useApp();
+  const { campaigns, dataLoading, resumeCampaign, pauseCampaign, cancelCampaign, notify } = useApp();
+  const [liveCampaign, setLiveCampaign] = useState(null);
+  const [busyAction, setBusyAction] = useState(null);
+
+  const contextCampaign = campaigns.find((c) => c.id === id) || campaigns[0];
+  const campaign = liveCampaign || contextCampaign;
+
+  useEffect(() => {
+    if (!id) return;
+    let active = true;
+
+    const fetchDetail = async () => {
+      try {
+        const res = await campaignsApi.get(id);
+        if (active && res?.campaign) {
+          setLiveCampaign(res.campaign);
+        }
+      } catch {
+        // Fallback to contextCampaign
+      }
+    };
+
+    fetchDetail();
+    const timer = setInterval(() => {
+      if (campaign?.status === 'Sending') {
+        fetchDetail();
+      }
+    }, 2000);
+
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [id, campaign?.status]);
+
+  if (dataLoading && !campaign) {
+    return <DashboardSkeleton />;
+  }
+
+  if (!campaign) {
+    return (
+      <div className="max-w-3xl mx-auto bg-white rounded-3xl p-8 text-center text-xs text-gray-500">
+        Campaign not found.
+      </div>
+    );
+  }
+
+  const isSending = campaign.status === 'Sending';
+  const isPaused = campaign.status === 'Paused';
+  const isCompleted = campaign.status === 'Completed';
+
+  const progress = campaign.progress || {
+    sent: campaign.sent || 0,
+    total: campaign.recipientsCount || campaign.sent || 0,
+    waiting: 0,
+    percentage: isCompleted ? 100 : 0,
+  };
+
+  const stats = campaign.stats || {
+    delivered: campaign.delivered || 0,
+    opened: 0,
+    bounced: campaign.bounced || 0,
+    failed: 0,
+    complaints: campaign.complaints || 0,
+    waiting: progress.waiting || 0,
+  };
+
+  const handleAction = async (actionType) => {
+    setBusyAction(actionType);
+    try {
+      let updated;
+      if (actionType === 'resume') updated = await resumeCampaign(campaign.id);
+      if (actionType === 'pause') updated = await pauseCampaign(campaign.id);
+      if (actionType === 'cancel') updated = await cancelCampaign(campaign.id);
+      if (updated) setLiveCampaign(updated);
+    } catch (err) {
+      notify({ type: 'error', message: err.message });
+    } finally {
+      setBusyAction(null);
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -26,69 +103,125 @@ export default function CampaignReport() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/campaigns')}
-            className="w-8 h-8 rounded-full bg-white border border-gray-200 hover:bg-gray-50 flex items-center justify-center text-gray-700 transition-colors"
+            className="w-8 h-8 rounded-full bg-white border border-gray-200 hover:bg-gray-50 flex items-center justify-center text-gray-700 transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold tracking-tight text-gray-900">November newsletter</h1>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900">
-                Paused
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900">{campaign.title}</h1>
+              <span
+                className={`text-xs font-bold px-2.5 py-0.5 rounded-md inline-flex items-center gap-1 ${
+                  isSending
+                    ? 'bg-emerald-100 text-emerald-900'
+                    : isPaused
+                    ? 'bg-amber-100 text-amber-900'
+                    : isCompleted
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : 'bg-gray-100 text-gray-700'
+                }`}
+              >
+                {isSending && <Spinner className="w-3 h-3" />}
+                <span>{campaign.status}</span>
               </span>
             </div>
             <p className="text-xs text-gray-500 font-medium mt-0.5">
-              Our monthly update, &#123;&#123;firstName&#125;&#125; · Newsletter · 942 people
+              {campaign.subjectA || campaign.subject || campaign.subtitle}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => alert('Canceling the rest...')}
-            className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-rose-600 bg-white hover:bg-rose-50 border border-gray-200 transition-colors shadow-2xs"
-          >
-            Cancel the rest
-          </button>
-          <button
-            onClick={() => alert('Duplicated campaign')}
-            className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white text-gray-800 border border-gray-200 hover:bg-gray-50 transition-colors shadow-2xs"
-          >
-            Duplicate
-          </button>
-          <button
-            onClick={() => {
-              resumeCampaign('november-newsletter');
-              alert('Campaign resumed!');
-            }}
-            className="px-4 py-1.5 rounded-xl text-xs font-bold bg-emerald-700 text-white hover:bg-emerald-800 flex items-center gap-1.5 transition-colors shadow-sm"
-          >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            <span>Resume sending</span>
-          </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {(isSending || isPaused) && (
+            <button
+              disabled={busyAction !== null}
+              onClick={() => handleAction('cancel')}
+              className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-rose-600 bg-white hover:bg-rose-50 border border-gray-200 transition-colors shadow-2xs flex items-center gap-1.5"
+            >
+              {busyAction === 'cancel' && <Spinner className="w-3 h-3" />}
+              <span>Cancel the rest</span>
+            </button>
+          )}
+
+          {isSending && (
+            <button
+              disabled={busyAction !== null}
+              onClick={() => handleAction('pause')}
+              className="px-4 py-1.5 rounded-xl text-xs font-bold bg-amber-600 text-white hover:bg-amber-700 flex items-center gap-1.5 transition-colors shadow-sm"
+            >
+              {busyAction === 'pause' ? <Spinner className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5 fill-current" />}
+              <span>Pause sending</span>
+            </button>
+          )}
+
+          {isPaused && (
+            <button
+              disabled={busyAction !== null}
+              onClick={() => handleAction('resume')}
+              className="px-4 py-1.5 rounded-xl text-xs font-bold bg-emerald-700 text-white hover:bg-emerald-800 flex items-center gap-1.5 transition-colors shadow-sm"
+            >
+              {busyAction === 'resume' ? <Spinner className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+              <span>Resume sending</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Main Paused Banner Card */}
-      <div className="bg-[#fef9c3]/70 border border-[#fef08a] rounded-3xl p-6 shadow-2xs">
+      {/* Main Progress Banner Card */}
+      <div
+        className={`rounded-3xl p-6 shadow-2xs border ${
+          isSending
+            ? 'bg-emerald-50/70 border-emerald-200'
+            : isPaused
+            ? 'bg-[#fef9c3]/70 border-[#fef08a]'
+            : 'bg-white border-gray-100'
+        }`}
+      >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
           <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-400 text-amber-950 flex items-center justify-center shrink-0">
-              <Pause className="w-4 h-4 fill-current" />
+            <div
+              className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                isSending
+                  ? 'bg-emerald-600 text-white'
+                  : isPaused
+                  ? 'bg-amber-400 text-amber-950'
+                  : 'bg-emerald-100 text-emerald-700'
+              }`}
+            >
+              {isSending ? (
+                <Spinner className="w-4 h-4" />
+              ) : isPaused ? (
+                <Pause className="w-4 h-4 fill-current" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4" />
+              )}
             </div>
             <div>
-              <h2 className="text-lg font-bold text-gray-900 leading-tight">Paused at 168 of 942</h2>
+              <h2 className="text-lg font-bold text-gray-900 leading-tight">
+                {campaign.status} at {progress.sent} of {progress.total}
+              </h2>
               <p className="text-xs text-gray-600 mt-1">
-                By Admin at 5:12 pm · 774 people are waiting · nobody gets it twice when you resume
+                {isSending
+                  ? `Amazon SES cron worker is delivering batches · ${progress.waiting} waiting`
+                  : isPaused
+                  ? `${progress.waiting} people are waiting · nobody gets it twice when you resume`
+                  : `All ${progress.sent} emails processed`}
               </p>
             </div>
           </div>
 
-          <span className="text-4xl font-extrabold text-amber-950">17.8%</span>
+          <span className="text-3xl sm:text-4xl font-extrabold text-gray-900">
+            {progress.percentage}%
+          </span>
         </div>
 
-        <div className="w-full bg-amber-200/80 h-3 rounded-full overflow-hidden mb-2">
-          <div className="bg-amber-600 h-full rounded-full w-[17.8%]" />
+        <div className="w-full bg-gray-200/80 h-3 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-300 ${
+              isSending || isCompleted ? 'bg-emerald-600' : 'bg-amber-600'
+            }`}
+            style={{ width: `${progress.percentage}%` }}
+          />
         </div>
       </div>
 
@@ -96,207 +229,116 @@ export default function CampaignReport() {
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
         <div className="bg-white border border-gray-100 rounded-3xl p-4 shadow-2xs">
           <span className="text-xs font-medium text-gray-400">Delivered</span>
-          <p className="text-2xl font-bold text-gray-900 mt-1">149</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{stats.delivered}</p>
         </div>
 
         <div className="bg-white border border-gray-100 rounded-3xl p-4 shadow-2xs">
           <span className="text-xs font-medium text-gray-400">Opened</span>
-          <p className="text-2xl font-bold text-gray-900 mt-1">3</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{stats.opened}</p>
         </div>
 
         <div className="bg-white border border-gray-100 rounded-3xl p-4 shadow-2xs">
           <span className="text-xs font-medium text-gray-400">Bounced</span>
-          <p className="text-2xl font-bold text-gray-900 mt-1">1</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{stats.bounced}</p>
         </div>
 
         <div className="bg-white border border-gray-100 rounded-3xl p-4 shadow-2xs">
           <span className="text-xs font-medium text-gray-400">Failed</span>
-          <p className="text-2xl font-bold text-gray-900 mt-1">4</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{stats.failed}</p>
         </div>
 
         <div className="bg-white border border-gray-100 rounded-3xl p-4 shadow-2xs">
           <span className="text-xs font-semibold text-rose-500">Spam complaints</span>
-          <p className="text-2xl font-bold text-rose-600 mt-1">1</p>
+          <p className="text-2xl font-bold text-rose-600 mt-1">{stats.complaints}</p>
         </div>
 
         <div className="bg-white border border-gray-100 rounded-3xl p-4 shadow-2xs">
           <span className="text-xs font-medium text-gray-400">Waiting</span>
-          <p className="text-2xl font-bold text-gray-900 mt-1">774</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{stats.waiting}</p>
         </div>
       </div>
 
       {/* 2 Column Layout: Left (Links + Problems) | Right (Activity + Preview) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column (7 cols) */}
         <div className="lg:col-span-7 space-y-6">
-          {/* Link clicks */}
           <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-2xs space-y-4">
             <div className="flex items-center justify-between pb-2">
               <div>
                 <h3 className="font-bold text-sm text-gray-900">Link clicks</h3>
                 <p className="text-xs text-gray-400">Which links people tapped</p>
               </div>
-              <span className="text-xs font-bold text-gray-500">0 clicks so far</span>
+              <span className="text-xs font-bold text-gray-500">Tracked via SES</span>
             </div>
 
             <div className="space-y-2">
-              <div className="p-3 bg-[#fafafa] rounded-2xl border border-gray-100 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2.5">
-                  <LinkIcon className="w-3.5 h-3.5 text-blue-500" />
-                  <div>
-                    <p className="font-bold text-gray-900">Read the full update</p>
-                    <p className="text-[11px] text-gray-400 font-mono">example.com/blog</p>
+              {(campaign.linkClicks || [{ title: 'Primary CTA', url: 'example.com', clicks: 0 }]).map((lk, idx) => (
+                <div key={idx} className="p-3 bg-[#fafafa] rounded-2xl border border-gray-100 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <LinkIcon className="w-3.5 h-3.5 text-blue-500" />
+                    <div>
+                      <p className="font-bold text-gray-900">{lk.title}</p>
+                      <p className="text-[11px] text-gray-400 font-mono">{lk.url}</p>
+                    </div>
                   </div>
+                  <span className="font-bold text-gray-700">{lk.clicks}</span>
                 </div>
-                <span className="font-bold text-gray-700">0</span>
-              </div>
-
-              <div className="p-3 bg-[#fafafa] rounded-2xl border border-gray-100 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2.5">
-                  <span className="text-gray-400">👤</span>
-                  <div>
-                    <p className="font-bold text-gray-900">Unsubscribe</p>
-                    <p className="text-[11px] text-gray-400">Footer and one-click header</p>
-                  </div>
-                </div>
-                <span className="font-bold text-gray-700">0</span>
-              </div>
+              ))}
             </div>
-
-            <p className="text-[11px] text-gray-400">Clicks usually build over the first 24 hours.</p>
           </div>
 
-          {/* Problems */}
           <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-2xs space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-gray-100">
-              <h3 className="font-bold text-sm text-gray-900">Problems</h3>
-              <button
-                onClick={() => alert('Full recipient log modal')}
-                className="text-xs font-semibold text-gray-600 hover:text-black"
-              >
-                Full recipient log
-              </button>
+              <h3 className="font-bold text-sm text-gray-900">Problems ({(campaign.problems || []).length})</h3>
             </div>
 
-            <div className="space-y-2.5 text-xs">
-              {/* Row 1 */}
-              <div className="p-3 rounded-2xl bg-rose-50/40 border border-rose-100 flex items-center justify-between gap-3">
-                <div>
-                  <p className="font-bold text-gray-900">Dilan Silva</p>
-                  <p className="text-[11px] text-gray-500 font-mono">dilan.silva1010@example.com</p>
-                </div>
-                <span className="text-rose-600 font-bold text-xs">! Marked as spam · suppressed</span>
-                <button
-                  onClick={() => navigate('/contacts/dilan-silva')}
-                  className="px-3 py-1 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800"
-                >
-                  Profile
-                </button>
+            {(campaign.problems || []).length === 0 ? (
+              <p className="text-xs text-gray-500">No delivery problems recorded.</p>
+            ) : (
+              <div className="space-y-2.5 text-xs">
+                {campaign.problems.map((prob, i) => (
+                  <div key={i} className="p-3 rounded-2xl bg-rose-50/40 border border-rose-100 flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="font-bold text-gray-900">{prob.recipient}</p>
+                      <p className="text-[11px] text-gray-500 font-mono">{prob.email}</p>
+                    </div>
+                    <span className="text-rose-600 font-bold text-xs">{prob.reason}</span>
+                    <button
+                      onClick={() => navigate('/contacts')}
+                      className="px-3 py-1 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800"
+                    >
+                      {prob.action || 'View'}
+                    </button>
+                  </div>
+                ))}
               </div>
-
-              {/* Row 2 */}
-              <div className="p-3 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-between gap-3">
-                <div>
-                  <p className="font-bold text-gray-900">Olivia Rajapaksha</p>
-                  <p className="text-[11px] text-gray-500 font-mono">olivia.rajapaksha240@sample.net</p>
-                </div>
-                <span className="text-gray-600 font-medium text-xs">Bounced · mailbox doesn’t exist</span>
-                <button
-                  onClick={() => navigate('/contacts/olivia-rajapaksha')}
-                  className="px-3 py-1 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800"
-                >
-                  Profile
-                </button>
-              </div>
-
-              {/* Row 3 */}
-              <div className="p-3 rounded-2xl bg-amber-50/40 border border-amber-100 flex items-center justify-between gap-3">
-                <div>
-                  <p className="font-bold text-gray-900">Nimal Gunawardena</p>
-                  <p className="text-[11px] text-gray-500 font-mono">nimal.gunawardena35@demo.org</p>
-                </div>
-                <span className="text-amber-800 font-bold text-xs">! Failed · rejected after 3 tries</span>
-                <button
-                  onClick={() => alert('Retrying send to Nimal Gunawardena...')}
-                  className="px-3 py-1 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800"
-                >
-                  Retry
-                </button>
-              </div>
-
-              {/* Row 4 */}
-              <div className="p-3 rounded-2xl bg-amber-50/40 border border-amber-100 flex items-center justify-between gap-3">
-                <div>
-                  <p className="font-bold text-gray-900">Tharindu Wilson</p>
-                  <p className="text-[11px] text-gray-500 font-mono">tharindu.wilson82@sample.net</p>
-                </div>
-                <span className="text-amber-800 font-bold text-xs">! Failed · rejected after 3 tries</span>
-                <button
-                  onClick={() => alert('Retrying send to Tharindu Wilson...')}
-                  className="px-3 py-1 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800"
-                >
-                  Retry
-                </button>
-              </div>
-            </div>
+            )}
           </div>
         </div>
 
-        {/* Right Column (5 cols) */}
         <div className="lg:col-span-5 space-y-6">
-          {/* Activity feed */}
           <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-2xs space-y-4">
             <h3 className="font-bold text-base text-gray-900">Activity</h3>
 
             <div className="space-y-4 pt-1 text-xs">
-              <div className="flex items-start gap-3">
-                <span className="w-2 h-2 rounded-full bg-amber-500 mt-1 shrink-0" />
-                <div>
-                  <p className="font-bold text-gray-900">Paused by Admin</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">5:12 pm</p>
+              {(campaign.activity || [
+                { id: 1, title: `Campaign status: ${campaign.status}`, time: 'Live' },
+              ]).map((act) => (
+                <div key={act.id} className="flex items-start gap-3">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1 shrink-0" />
+                  <div>
+                    <p className="font-bold text-gray-900">{act.title}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">{act.time}</p>
+                  </div>
                 </div>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <span className="w-2 h-2 rounded-full bg-rose-500 mt-1 shrink-0" />
-                <div>
-                  <p className="font-bold text-gray-900">Dilan Silva marked it as spam</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">5:11 pm · suppressed automatically</p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1 shrink-0" />
-                <div>
-                  <p className="font-bold text-gray-900">First opens</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">5:11 pm · 3 people</p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <span className="w-2 h-2 rounded-full bg-rose-400 mt-1 shrink-0" />
-                <div>
-                  <p className="font-bold text-gray-900">4 emails failed after 3 retries</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">5:10 pm</p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <span className="w-2 h-2 rounded-full bg-gray-400 mt-1 shrink-0" />
-                <div>
-                  <p className="font-bold text-gray-900">Sending started</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">5:10 pm · 10 a second</p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
-          {/* Subject and preview */}
           <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-2xs space-y-3">
             <h3 className="font-bold text-sm text-gray-900">Subject and preview</h3>
             <div className="bg-[#fafafa] p-3.5 rounded-2xl border border-gray-100 text-xs space-y-1">
-              <p className="font-bold text-gray-900">Our monthly update, Jane</p>
-              <p className="text-gray-500">Here is what happened this month…</p>
+              <p className="font-bold text-gray-900">{campaign.subjectA || campaign.subject || campaign.title}</p>
+              <p className="text-gray-500">{campaign.previewText || 'Preview text'}</p>
             </div>
             <button
               onClick={() => navigate('/templates')}

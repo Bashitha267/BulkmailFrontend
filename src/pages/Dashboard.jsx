@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
+import { DashboardSkeleton, Spinner } from '../components/Skeleton';
 import { 
   Users, 
   Send, 
@@ -29,10 +30,47 @@ export default function Dashboard() {
     isSimulationMode, 
     setIsSimulationMode,
     setIsImportModalOpen,
+    contacts,
     campaigns,
-    resumeCampaign 
+    dataLoading,
+    resumeCampaign,
+    pauseCampaign,
+    notify,
   } = useApp();
   const navigate = useNavigate();
+  const [actionBusyId, setActionBusyId] = useState(null);
+
+  if (dataLoading) {
+    return <DashboardSkeleton />;
+  }
+
+  const canReceiveCount = contacts.filter((c) => c.status === 'Subscribed').length;
+  const totalSent = campaigns.reduce((sum, c) => sum + (c.sent || c.progress?.sent || 0), 0);
+  const totalDelivered = campaigns.reduce((sum, c) => sum + (c.delivered || c.stats?.delivered || 0), 0);
+  const totalBounced = campaigns.reduce((sum, c) => sum + (c.bounced || c.stats?.bounced || 0), 0);
+  const totalComplaints = campaigns.reduce((sum, c) => sum + (c.complaints || c.stats?.complaints || 0), 0);
+  const deliveredPct = totalSent > 0 ? ((totalDelivered / totalSent) * 100).toFixed(1) : '0.0';
+  const bouncedPct = totalSent > 0 ? ((totalBounced / totalSent) * 100).toFixed(1) : '0.0';
+  const complaintPct = totalSent > 0 ? ((totalComplaints / totalSent) * 100).toFixed(2) : '0.00';
+
+  const activeOrPausedCampaign =
+    campaigns.find((c) => c.status === 'Sending') ||
+    campaigns.find((c) => c.status === 'Paused');
+
+  const handleTogglePauseResume = async (camp) => {
+    setActionBusyId(camp.id);
+    try {
+      if (camp.status === 'Sending') {
+        await pauseCampaign(camp.id);
+      } else {
+        await resumeCampaign(camp.id);
+      }
+    } catch (err) {
+      notify({ type: 'error', message: err.message });
+    } finally {
+      setActionBusyId(null);
+    }
+  };
 
   // If viewing Onboarding Empty State (Page 1)
   if (dashboardMode === 'empty') {
@@ -307,8 +345,8 @@ export default function Dashboard() {
               <Users className="w-3.5 h-3.5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900 tracking-tight">1,200</p>
-          <p className="text-[11px] text-gray-500 mt-1 font-medium">1,129 can receive</p>
+          <p className="text-2xl font-bold text-gray-900 tracking-tight">{contacts.length.toLocaleString()}</p>
+          <p className="text-[11px] text-gray-500 mt-1 font-medium">{canReceiveCount.toLocaleString()} can receive</p>
         </div>
 
         {/* Sent */}
@@ -319,7 +357,7 @@ export default function Dashboard() {
               <Send className="w-3.5 h-3.5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900 tracking-tight">1,765</p>
+          <p className="text-2xl font-bold text-gray-900 tracking-tight">{totalSent.toLocaleString()}</p>
           <p className="text-[11px] text-gray-500 mt-1 font-medium">All time</p>
         </div>
 
@@ -331,8 +369,8 @@ export default function Dashboard() {
               <CheckCircle2 className="w-3.5 h-3.5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900 tracking-tight">96.7%</p>
-          <p className="text-[11px] text-gray-500 mt-1 font-medium">1,707 emails</p>
+          <p className="text-2xl font-bold text-gray-900 tracking-tight">{deliveredPct}%</p>
+          <p className="text-[11px] text-gray-500 mt-1 font-medium">{totalDelivered.toLocaleString()} emails</p>
         </div>
 
         {/* Bounced */}
@@ -343,8 +381,8 @@ export default function Dashboard() {
               <RotateCcw className="w-3.5 h-3.5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900 tracking-tight">2.3%</p>
-          <p className="text-[11px] text-gray-500 mt-1 font-medium">40 · suppressed</p>
+          <p className="text-2xl font-bold text-gray-900 tracking-tight">{bouncedPct}%</p>
+          <p className="text-[11px] text-gray-500 mt-1 font-medium">{totalBounced} · suppressed</p>
         </div>
 
         {/* Spam Complaints */}
@@ -355,67 +393,105 @@ export default function Dashboard() {
               <Flag className="w-3.5 h-3.5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900 tracking-tight">0.06%</p>
-          <p className="text-[11px] text-gray-500 mt-1 font-medium">1 · limit is 0.3%</p>
+          <p className="text-2xl font-bold text-gray-900 tracking-tight">{complaintPct}%</p>
+          <p className="text-[11px] text-gray-500 mt-1 font-medium">{totalComplaints} · limit is 0.3%</p>
         </div>
       </div>
 
-      {/* Main Grid: Left Side (Paused + Recent Campaigns) and Right Side (Needs Attention + Deliverability) */}
+      {/* Main Grid: Left Side (Paused/Sending + Recent Campaigns) and Right Side (Needs Attention + Deliverability) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column (7 cols) */}
         <div className="lg:col-span-7 space-y-6">
-          {/* Paused Campaign Banner Card */}
-          <div className="bg-[#fef9c3]/70 border border-[#fef08a] rounded-3xl p-5 shadow-2xs">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-xl bg-amber-400 text-amber-950 flex items-center justify-center shrink-0">
-                  <Pause className="w-4 h-4 fill-current" />
+          {/* Active Sending or Paused Campaign Banner Card */}
+          {activeOrPausedCampaign && (
+            <div
+              className={`rounded-3xl p-5 shadow-2xs border ${
+                activeOrPausedCampaign.status === 'Sending'
+                  ? 'bg-emerald-50/70 border-emerald-200'
+                  : 'bg-[#fef9c3]/70 border-[#fef08a]'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                      activeOrPausedCampaign.status === 'Sending'
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-amber-400 text-amber-950'
+                    }`}
+                  >
+                    {activeOrPausedCampaign.status === 'Sending' ? (
+                      <Spinner className="w-4 h-4" />
+                    ) : (
+                      <Pause className="w-4 h-4 fill-current" />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-gray-900 leading-tight">
+                      {activeOrPausedCampaign.status === 'Sending' ? 'Sending via Amazon SES' : 'Paused'}
+                    </h3>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      {activeOrPausedCampaign.title} · {activeOrPausedCampaign.subtitle}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-bold text-sm text-gray-900 leading-tight">Paused</h3>
-                  <p className="text-xs text-gray-600 mt-0.5">
-                    November newsletter · paused by Admin at 5:12 pm
-                  </p>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => navigate(`/campaigns/${activeOrPausedCampaign.id}/report`)}
+                    className="px-3 py-1.5 rounded-xl bg-white text-gray-800 text-xs font-bold hover:bg-gray-50 border border-gray-200 transition-colors shadow-2xs"
+                  >
+                    Open
+                  </button>
+                  <button
+                    disabled={actionBusyId === activeOrPausedCampaign.id}
+                    onClick={() => handleTogglePauseResume(activeOrPausedCampaign)}
+                    className={`px-3.5 py-1.5 rounded-xl text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs ${
+                      activeOrPausedCampaign.status === 'Sending'
+                        ? 'bg-amber-600 hover:bg-amber-700'
+                        : 'bg-emerald-700 hover:bg-emerald-800'
+                    }`}
+                  >
+                    {actionBusyId === activeOrPausedCampaign.id ? (
+                      <Spinner className="w-3 h-3" />
+                    ) : activeOrPausedCampaign.status === 'Sending' ? (
+                      <Pause className="w-3 h-3 fill-current" />
+                    ) : (
+                      <Play className="w-3 h-3 fill-current" />
+                    )}
+                    <span>{activeOrPausedCampaign.status === 'Sending' ? 'Pause' : 'Resume'}</span>
+                  </button>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => navigate('/campaigns/november-newsletter/report')}
-                  className="px-3 py-1.5 rounded-xl bg-white text-gray-800 text-xs font-bold hover:bg-gray-50 border border-gray-200 transition-colors shadow-2xs"
-                >
-                  Open
-                </button>
-                <button
-                  onClick={() => resumeCampaign('november-newsletter')}
-                  className="px-3.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
-                >
-                  <Play className="w-3 h-3 fill-current" />
-                  <span>Resume</span>
-                </button>
+              <div className="flex items-baseline justify-between text-xs mb-1.5">
+                <span className="font-bold text-gray-900 text-sm">
+                  Sent <span className="text-base">{activeOrPausedCampaign.progress?.sent || 0}</span> of{' '}
+                  {activeOrPausedCampaign.progress?.total || 0}
+                </span>
+                <span className="text-amber-900 font-semibold bg-amber-200/80 px-2 py-0.5 rounded-full text-[11px]">
+                  {activeOrPausedCampaign.progress?.waiting || 0} waiting
+                </span>
               </div>
+
+              <div className="w-full bg-gray-200/80 h-2 rounded-full overflow-hidden mb-3">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    activeOrPausedCampaign.status === 'Sending' ? 'bg-emerald-600' : 'bg-amber-600'
+                  }`}
+                  style={{ width: `${activeOrPausedCampaign.progress?.percentage || 0}%` }}
+                />
+              </div>
+
+              <p className="text-[11.5px] text-gray-600 font-medium">
+                {activeOrPausedCampaign.status === 'Sending'
+                  ? 'Cron worker is delivering batches smoothly within Amazon SES limits.'
+                  : 'Nothing more goes out until you resume. Recipients already sent to won’t get it twice.'}
+              </p>
             </div>
+          )}
 
-            {/* Progress indicators */}
-            <div className="flex items-baseline justify-between text-xs mb-1.5">
-              <span className="font-bold text-gray-900 text-sm">
-                Sent <span className="text-base">168</span> of 942
-              </span>
-              <span className="text-amber-900 font-semibold bg-amber-200/80 px-2 py-0.5 rounded-full text-[11px]">
-                774 waiting
-              </span>
-            </div>
-
-            <div className="w-full bg-amber-200/80 h-2 rounded-full overflow-hidden mb-3">
-              <div className="bg-amber-600 h-full rounded-full w-[17.8%]" />
-            </div>
-
-            <p className="text-[11.5px] text-gray-600 font-medium">
-              Nothing more goes out until you resume. Recipients already sent to won’t get it twice.
-            </p>
-          </div>
-
-          {/* Recent Campaigns Card */}
+          {/* Recent Campaigns Card (Live from Backend) */}
           <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-2xs">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -431,114 +507,91 @@ export default function Dashboard() {
             </div>
 
             <div className="space-y-3">
-              {/* December newsletter */}
-              <div className="p-3.5 rounded-2xl border border-gray-100 hover:border-gray-200 bg-[#fafafa] flex items-center justify-between gap-3 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center shrink-0 font-bold text-xs">
-                    ✏️
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-gray-900">December newsletter</h3>
-                    <p className="text-xs text-gray-500">Draft · autosaved 5:09 pm</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-gray-100 text-gray-600">
-                    Draft
-                  </span>
-                  <button
-                    onClick={() => navigate('/campaigns/december-newsletter/edit')}
-                    className="px-3 py-1.5 bg-black text-white hover:bg-zinc-800 text-xs font-bold rounded-xl transition-colors"
-                  >
-                    Continue
-                  </button>
-                </div>
-              </div>
+              {campaigns.length === 0 ? (
+                <p className="text-xs text-gray-500 py-4 text-center">No campaigns yet.</p>
+              ) : (
+                campaigns.slice(0, 4).map((camp) => {
+                  const isDraft = camp.status === 'Draft';
+                  const isScheduled = camp.status === 'Scheduled';
+                  const isSending = camp.status === 'Sending';
+                  const isPaused = camp.status === 'Paused';
+                  const isCompleted = camp.status === 'Completed';
 
-              {/* VIP thank you */}
-              <div className="p-3.5 rounded-2xl border border-gray-100 hover:border-gray-200 bg-[#fafafa] flex items-center justify-between gap-3 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
-                    <Clock className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-gray-900">VIP thank you</h3>
-                    <p className="text-xs text-gray-500">
-                      Mon 23 Nov, 5:10 pm (Colombo time) · 63 people
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700">
-                    Scheduled
-                  </span>
-                  <button
-                    onClick={() => navigate('/campaigns/december-newsletter/review')}
-                    className="px-3 py-1.5 bg-white text-gray-800 border border-gray-200 hover:bg-gray-50 text-xs font-bold rounded-xl transition-colors"
-                  >
-                    Review
-                  </button>
-                </div>
-              </div>
+                  return (
+                    <div
+                      key={camp.id}
+                      className="p-3.5 rounded-2xl border border-gray-100 hover:border-gray-200 bg-[#fafafa] flex items-center justify-between gap-3 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 font-bold text-xs ${
+                            isDraft
+                              ? 'bg-purple-50 text-purple-700'
+                              : isScheduled
+                              ? 'bg-blue-50 text-blue-700'
+                              : isSending
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : isPaused
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-emerald-50 text-emerald-700'
+                          }`}
+                        >
+                          {isDraft ? '✏️' : isScheduled ? <Clock className="w-4 h-4" /> : isSending ? <Spinner className="w-4 h-4" /> : isPaused ? <Pause className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="font-bold text-sm text-gray-900 truncate">{camp.title}</h3>
+                          <p className="text-xs text-gray-500 truncate">
+                            {isCompleted && camp.openedRate
+                              ? `${camp.month} ${camp.day} · ${camp.openedRate} opened · ${camp.clickedRate || '0%'} clicked`
+                              : isSending && camp.progress
+                              ? `Sending · ${camp.progress.sent} of ${camp.progress.total}`
+                              : camp.subtitle || camp.description}
+                          </p>
+                        </div>
+                      </div>
 
-              {/* Dashboard launch */}
-              <div className="p-3.5 rounded-2xl border border-gray-100 hover:border-gray-200 bg-[#fafafa] flex items-center justify-between gap-3 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
-                    <CheckCircle2 className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-gray-900">Dashboard launch</h3>
-                    <p className="text-xs text-gray-500">
-                      16 Nov · 44.1% opened · 11.8% clicked
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700">
-                    ✓ Completed
-                  </span>
-                  <button
-                    onClick={() => navigate('/campaigns/november-newsletter/report')}
-                    className="px-3 py-1.5 bg-white text-gray-800 border border-gray-200 hover:bg-gray-50 text-xs font-bold rounded-xl transition-colors"
-                  >
-                    Report
-                  </button>
-                </div>
-              </div>
-
-              {/* Black Friday early access */}
-              <div className="p-3.5 rounded-2xl border border-gray-100 hover:border-gray-200 bg-[#fafafa] flex items-center justify-between gap-3 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
-                    <CheckCircle2 className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-gray-900">Black Friday early access</h3>
-                    <p className="text-xs text-gray-500">
-                      8 Nov · 40.8% opened · 10.3% clicked
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700">
-                    ✓ Completed
-                  </span>
-                  <button
-                    onClick={() => alert('Resending to non-openers...')}
-                    className="px-3 py-1.5 bg-white text-gray-800 border border-gray-200 hover:bg-gray-50 text-xs font-bold rounded-xl transition-colors"
-                  >
-                    Resend to non-openers
-                  </button>
-                </div>
-              </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          className={`text-xs font-semibold px-2.5 py-0.5 rounded-md ${
+                            isDraft
+                              ? 'bg-gray-100 text-gray-600'
+                              : isScheduled
+                              ? 'bg-blue-50 text-blue-700'
+                              : isPaused
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-emerald-50 text-emerald-700'
+                          }`}
+                        >
+                          {isCompleted ? '✓ Completed' : camp.status}
+                        </span>
+                        <button
+                          onClick={() =>
+                            isDraft
+                              ? navigate(`/campaigns/${camp.id}/edit`)
+                              : isScheduled
+                              ? navigate(`/campaigns/${camp.id}/review`)
+                              : navigate(`/campaigns/${camp.id}/report`)
+                          }
+                          className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-colors ${
+                            isDraft
+                              ? 'bg-black text-white hover:bg-zinc-800'
+                              : 'bg-white text-gray-800 border border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          {isDraft ? 'Continue' : isScheduled ? 'Review' : 'Report'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>
 
         {/* Right Column (5 cols) */}
         <div className="lg:col-span-5 space-y-6">
-          {/* Needs Attention Card */}
+          {/* Needs Attention Card (Dynamic from Real Data) */}
           <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-2xs">
             <div className="mb-4">
               <h2 className="text-base font-bold text-gray-900">Needs attention</h2>
@@ -567,51 +620,66 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              {/* November newsletter paused */}
-              <div className="p-3.5 rounded-2xl bg-amber-50/50 border border-amber-100 flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
-                    <Pause className="w-3.5 h-3.5 fill-current" />
+              {/* Paused campaigns */}
+              {campaigns
+                .filter((c) => c.status === 'Paused')
+                .slice(0, 1)
+                .map((pausedCamp) => (
+                  <div
+                    key={pausedCamp.id}
+                    className="p-3.5 rounded-2xl bg-amber-50/50 border border-amber-100 flex items-start justify-between gap-3"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+                        <Pause className="w-3.5 h-3.5 fill-current" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-xs text-gray-900 leading-tight">
+                          {pausedCamp.title} paused
+                        </h3>
+                        <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">
+                          {pausedCamp.progress?.waiting || 0} people still waiting
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      disabled={actionBusyId === pausedCamp.id}
+                      onClick={() => handleTogglePauseResume(pausedCamp)}
+                      className="px-3 py-1 bg-white hover:bg-amber-50 text-gray-800 border border-gray-200 text-xs font-bold rounded-lg transition-colors shrink-0"
+                    >
+                      {actionBusyId === pausedCamp.id ? '...' : 'Resume'}
+                    </button>
                   </div>
-                  <div>
-                    <h3 className="font-bold text-xs text-gray-900 leading-tight">November newsletter paused</h3>
-                    <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">
-                      774 people still waiting
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => resumeCampaign('november-newsletter')}
-                  className="px-3 py-1 bg-white hover:bg-amber-50 text-gray-800 border border-gray-200 text-xs font-bold rounded-lg transition-colors shrink-0"
-                >
-                  Resume
-                </button>
-              </div>
+                ))}
 
-              {/* 1 spam complaint */}
-              <div className="p-3.5 rounded-2xl bg-gray-50 border border-gray-100 flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center shrink-0 mt-0.5">
-                    <Flag className="w-3.5 h-3.5" />
+              {/* Real spam complaints count */}
+              {contacts.filter((c) => c.status === 'Complained').length > 0 && (
+                <div className="p-3.5 rounded-2xl bg-gray-50 border border-gray-100 flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="w-7 h-7 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center shrink-0 mt-0.5">
+                      <Flag className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-xs text-gray-900 leading-tight">
+                        {contacts.filter((c) => c.status === 'Complained').length} spam complaint
+                      </h3>
+                      <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
+                        Contact suppressed automatically
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-bold text-xs text-gray-900 leading-tight">1 spam complaint</h3>
-                    <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
-                      Contact suppressed automatically
-                    </p>
-                  </div>
+                  <button
+                    onClick={() => navigate('/contacts')}
+                    className="px-3 py-1 bg-white hover:bg-gray-100 text-gray-800 border border-gray-200 text-xs font-bold rounded-lg transition-colors shrink-0"
+                  >
+                    View
+                  </button>
                 </div>
-                <button
-                  onClick={() => navigate('/contacts')}
-                  className="px-3 py-1 bg-white hover:bg-gray-100 text-gray-800 border border-gray-200 text-xs font-bold rounded-lg transition-colors shrink-0"
-                >
-                  View
-                </button>
-              </div>
+              )}
             </div>
           </div>
 
-          {/* Deliverability Card */}
+          {/* Deliverability Card (Real Rates) */}
           <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-2xs">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -643,10 +711,13 @@ export default function Dashboard() {
             <div className="mb-3">
               <div className="flex justify-between text-xs font-medium text-gray-600 mb-1">
                 <span>Complaint rate</span>
-                <span className="font-bold text-gray-900">0.06% of 0.3%</span>
+                <span className="font-bold text-gray-900">{complaintPct}% of 0.3%</span>
               </div>
               <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                <div className="bg-emerald-500 h-full rounded-full w-[20%]" />
+                <div
+                  className="bg-emerald-500 h-full rounded-full"
+                  style={{ width: `${Math.min(100, (Number(complaintPct) / 0.3) * 100)}%` }}
+                />
               </div>
             </div>
 
@@ -654,10 +725,13 @@ export default function Dashboard() {
             <div className="mb-5">
               <div className="flex justify-between text-xs font-medium text-gray-600 mb-1">
                 <span>Bounce rate</span>
-                <span className="font-bold text-gray-900">2.3% of 5%</span>
+                <span className="font-bold text-gray-900">{bouncedPct}% of 5%</span>
               </div>
               <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                <div className="bg-amber-500 h-full rounded-full w-[46%]" />
+                <div
+                  className="bg-amber-500 h-full rounded-full"
+                  style={{ width: `${Math.min(100, (Number(bouncedPct) / 5) * 100)}%` }}
+                />
               </div>
             </div>
 
