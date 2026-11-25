@@ -3,11 +3,16 @@ import {
   authApi,
   getAuthToken,
   setAuthToken,
+  setUnauthorizedHandler,
   workspaceApi,
   contactsApi,
   templatesApi,
   campaignsApi,
   settingsApi,
+  groupsApi,
+  segmentsApi,
+  automationsApi,
+  dashboardApi,
 } from '../services/api';
 import ToastContainer from '../components/ToastContainer';
 
@@ -75,15 +80,31 @@ export function AppProvider({ children }) {
   const loadWorkspace = useCallback(async () => {
     setDataLoading(true);
     try {
-      const data = await workspaceApi.bootstrap();
-      setContacts(data.contacts || []);
-      setCampaigns(data.campaigns || []);
-      setTemplates(data.templates || []);
-      setGroups(data.groups || []);
-      setSegments(data.segments || []);
-      setAutomations(data.automations || []);
-      setSettings(data.settings || EMPTY_SETTINGS);
-      setIsSimulationMode(data.sesMode !== 'live');
+      // The backend has no single bootstrap call any more; load each list in parallel.
+      const [contactsRes, campaignsRes, templatesRes, groupsRes, segmentsRes, automationsRes, settingsRes, summaryRes] =
+        await Promise.all([
+          contactsApi.list({ pageSize: 100 }),
+          campaignsApi.list(),
+          templatesApi.list(),
+          groupsApi.list(),
+          segmentsApi.list(),
+          automationsApi.list(),
+          settingsApi.get(),
+          dashboardApi.summary(),
+        ]);
+      setContacts(contactsRes.contacts || []);
+      setCampaigns(campaignsRes.campaigns || []);
+      setTemplates(templatesRes.templates || []);
+      setGroups(groupsRes.groups || []);
+      setSegments(segmentsRes.segments || []);
+      setAutomations(automationsRes.automations || []);
+      setSettings({
+        ...EMPTY_SETTINGS,
+        ...(settingsRes.settings || {}),
+        team: settingsRes.team || [],
+        auditLog: settingsRes.auditLog || [],
+      });
+      setIsSimulationMode(summaryRes.sesMode !== 'live');
     } catch (err) {
       notify({
         type: 'error',
@@ -94,6 +115,15 @@ export function AppProvider({ children }) {
       setDataLoading(false);
     }
   }, [notify]);
+
+  // Sign out automatically when the server says the session has expired.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setAuthToken(null);
+      setUser(null);
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
 
   // Restore JWT session on app mount
   useEffect(() => {
