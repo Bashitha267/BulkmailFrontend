@@ -1,11 +1,19 @@
 /**
- * API Service Adapter for Node.js + Express Backend
+ * API client for the Bulk Mailer backend.
  *
- * In production on Hostinger hPanel, configure VITE_API_BASE_URL to point to your
- * Node.js server (e.g. https://api.yourdomain.com/api or /api).
+ * The backend address comes from VITE_API_BASE_URL (see .env.example).
+ * Vite bakes it into the build, so rebuild after changing it.
+ * Left empty in development, requests go to /api and Vite proxies them.
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+function resolveApiBase() {
+  const raw = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (!raw) return '/api';
+  // Accept "https://host" as well as "https://host/api".
+  return /\/api$/.test(raw) ? raw : `${raw}/api`;
+}
+
+export const API_BASE_URL = resolveApiBase();
 
 export function getAuthToken() {
   return localStorage.getItem('bm_token');
