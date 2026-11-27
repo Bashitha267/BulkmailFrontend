@@ -65,20 +65,29 @@ export default function CampaignReport() {
   const isPaused = campaign.status === 'Paused';
   const isCompleted = campaign.status === 'Completed';
 
-  const progress = campaign.progress || {
-    sent: campaign.sent || 0,
-    total: campaign.recipientsCount || campaign.sent || 0,
-    waiting: 0,
-    percentage: isCompleted ? 100 : 0,
-  };
-
   const stats = campaign.stats || {
+    total: campaign.recipientsCount || campaign.sent || 0,
+    sent: campaign.sent || 0,
+    waiting: 0,
     delivered: campaign.delivered || 0,
     opened: 0,
     bounced: campaign.bounced || 0,
     failed: 0,
     complaints: campaign.complaints || 0,
-    waiting: progress.waiting || 0,
+  };
+
+  const progressTotal = stats.total ?? campaign.recipientsCount ?? campaign.sent ?? 0;
+  const progressSent = stats.sent ?? campaign.sent ?? 0;
+  const progress = campaign.progress || {
+    sent: progressSent,
+    total: progressTotal,
+    waiting: stats.waiting ?? Math.max(0, progressTotal - progressSent),
+    percentage:
+      progressTotal > 0
+        ? Math.min(100, Math.round((progressSent / progressTotal) * 100))
+        : isCompleted
+        ? 100
+        : 0,
   };
 
   const handleAction = async (actionType) => {

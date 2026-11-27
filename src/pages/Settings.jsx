@@ -1,47 +1,52 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
+import { settingsApi } from '../services/api';
 import { DashboardSkeleton, Spinner } from '../components/Skeleton';
-import { 
-  CheckCircle2, 
-  Plus, 
-  ExternalLink, 
-  ShieldCheck, 
-  Users, 
-  Clock, 
-  Radio, 
-  Server,
-  ChevronDown,
+import {
+  CheckCircle2,
+  Plus,
+  ShieldCheck,
   Trash2,
   X,
-  Mail,
-  Globe,
-  UserPlus
+  AlertTriangle,
 } from 'lucide-react';
+
+function formatShortTime(iso) {
+  if (!iso) return 'None yet';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' });
+}
 
 export default function Settings() {
   const navigate = useNavigate();
-  const { 
-    settings, 
+  const {
+    settings,
+    setSettings,
     dataLoading,
     saveSettings,
-    isSimulationMode, 
+    isSimulationMode,
     setIsSimulationMode,
     addField,
     deleteField,
     addSenderEmail,
+    setDefaultSenderEmail,
+    removeSenderEmail,
     addDomain,
     inviteTeamMember,
-    notify
+    notify,
   } = useApp();
 
   const [saving, setSaving] = useState(false);
 
-  // Controlled SES settings
+  // Controlled SES & General settings
+  const [fromName, setFromName] = useState(settings.general?.fromName || '');
+  const [replyTo, setReplyTo] = useState(settings.general?.replyTo || '');
   const [sendRate, setSendRate] = useState(settings.ses?.sendRate || 10);
   const [retries, setRetries] = useState(settings.ses?.retries || 3);
-  const [dailyLimit, setDailyLimit] = useState(settings.ses?.dailyLimit || '1,000 (warm-up)');
-  
+  const [dailyLimit, setDailyLimit] = useState(settings.ses?.dailyLimit ?? 1000);
+
   // Controlled Compliance settings
   const [businessAddress, setBusinessAddress] = useState(settings.compliance?.address || '');
   const [oneClickUnsub, setOneClickUnsub] = useState(settings.compliance?.oneClickUnsubscribe ?? true);
@@ -49,23 +54,42 @@ export default function Settings() {
   const [preferencePage, setPreferencePage] = useState(settings.compliance?.preferencePage ?? true);
 
   useEffect(() => {
+    setFromName(settings.general?.fromName || '');
+    setReplyTo(settings.general?.replyTo || '');
     setSendRate(settings.ses?.sendRate || 10);
     setRetries(settings.ses?.retries || 3);
-    setDailyLimit(settings.ses?.dailyLimit || '1,000 (warm-up)');
+    setDailyLimit(settings.ses?.dailyLimit ?? 1000);
     setBusinessAddress(settings.compliance?.address || '');
     setOneClickUnsub(settings.compliance?.oneClickUnsubscribe ?? true);
     setDoubleOptIn(settings.compliance?.doubleOptIn ?? true);
     setPreferencePage(settings.compliance?.preferencePage ?? true);
   }, [settings]);
 
+  // Refresh live sender verification statuses when viewing Settings
+  useEffect(() => {
+    let active = true;
+    settingsApi
+      .senders()
+      .then((res) => {
+        if (active && Array.isArray(res?.senders)) {
+          setSettings((prev) => ({ ...prev, senders: res.senders.filter(Boolean) }));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [setSettings]);
+
   // Add Field State
   const [showAddFieldModal, setShowAddFieldModal] = useState(false);
   const [newFieldName, setNewFieldName] = useState('');
-  const [newFieldType, setNewFieldType] = useState('Text');
+  const [newFieldType, setNewFieldType] = useState('text');
 
   // Add Sender State
   const [showAddSenderModal, setShowAddSenderModal] = useState(false);
   const [newSenderEmail, setNewSenderEmail] = useState('');
+  const [addingSender, setAddingSender] = useState(false);
 
   // Add Domain State
   const [showAddDomainModal, setShowAddDomainModal] = useState(false);
@@ -79,25 +103,35 @@ export default function Settings() {
 
   const [savedSuccess, setSavedSuccess] = useState(false);
 
-  if (dataLoading && settings.senders.length === 0) {
+  if (dataLoading && (!settings.fields || settings.fields.length === 0)) {
     return <DashboardSkeleton />;
   }
+
+  const sesInfo = settings.sesInfo || {};
+  const maxSesRate = sesInfo.quota?.maxRate || null;
+  const isSesLive = sesInfo.mode === 'live' && !isSimulationMode;
+  const lastEvents = sesInfo.lastEvents || {};
 
   const handleSave = async () => {
     setSaving(true);
     try {
       await saveSettings({
+        general: {
+          fromName: fromName.trim(),
+          replyTo: replyTo.trim(),
+        },
         ses: {
-          sendRate: Number(sendRate),
-          retries: Number(retries),
-          dailyLimit
+          sendRate: Number(sendRate) || 10,
+          retries: Number(retries) || 0,
+          dailyLimit: Number(dailyLimit) || 0,
+          simulation: Boolean(isSimulationMode),
         },
         compliance: {
           address: businessAddress,
           oneClickUnsubscribe: oneClickUnsub,
           doubleOptIn: doubleOptIn,
-          preferencePage: preferencePage
-        }
+          preferencePage: preferencePage,
+        },
       });
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 2500);
@@ -108,55 +142,72 @@ export default function Settings() {
     }
   };
 
-  const handleCreateField = (e) => {
+  const handleToggleSimulation = async () => {
+    const next = !isSimulationMode;
+    setIsSimulationMode(next);
+    try {
+      await saveSettings({ ses: { simulation: next } });
+    } catch (err) {
+      setIsSimulationMode(!next);
+      notify({ type: 'error', title: 'Could not update mode', message: err.message });
+    }
+  };
+
+  const handleCreateField = async (e) => {
     e.preventDefault();
     if (!newFieldName.trim()) return;
-    const tag = `{{${newFieldName.toLowerCase().replace(/\s+/g, '')}}}`;
-    addField({
-      id: newFieldName.toLowerCase().replace(/\s+/g, '-'),
+    await addField({
       name: newFieldName.trim(),
       type: newFieldType,
-      tag,
-      filled: 0
+      ...(newFieldType === 'choice' ? { options: ['Free', 'Pro', 'Business'] } : {}),
     });
     setNewFieldName('');
     setShowAddFieldModal(false);
   };
 
-  const handleDeleteField = (fieldNameOrId) => {
-    deleteField(fieldNameOrId);
+  const handleDeleteField = (fieldKey) => {
+    deleteField(fieldKey);
   };
 
-  const handleCreateSender = (e) => {
+  const handleCreateSender = async (e) => {
     e.preventDefault();
     if (!newSenderEmail.trim()) return;
-    addSenderEmail(newSenderEmail.trim());
-    setNewSenderEmail('');
-    setShowAddSenderModal(false);
+    setAddingSender(true);
+    try {
+      await addSenderEmail(newSenderEmail.trim());
+      setNewSenderEmail('');
+      setShowAddSenderModal(false);
+    } finally {
+      setAddingSender(false);
+    }
   };
 
-  const handleCreateDomain = (e) => {
+  const handleCreateDomain = async (e) => {
     e.preventDefault();
     if (!newDomainName.trim()) return;
-    addDomain(newDomainName.trim());
+    await addDomain(newDomainName.trim());
     setNewDomainName('');
     setShowAddDomainModal(false);
   };
 
-  const handleInviteMember = (e) => {
+  const handleInviteMember = async (e) => {
     e.preventDefault();
     if (!newMemberName.trim() || !newMemberEmail.trim()) return;
-    const initials = (newMemberName[0] || 'U') + (newMemberName.split(' ')[1]?.[0] || '');
-    inviteTeamMember({
+    await inviteTeamMember({
       name: newMemberName.trim(),
       email: newMemberEmail.trim(),
       role: newMemberRole,
-      avatar: initials.toUpperCase()
     });
     setNewMemberName('');
     setNewMemberEmail('');
     setShowInviteModal(false);
   };
+
+  const sendersList = (settings.senders || []).filter((s) => s && s.email);
+  const domainsList = (settings.domains || []).filter((d) => d && d.name);
+  const fieldsList = (settings.fields || []).filter((f) => f && f.name);
+  const teamList = (settings.team || []).filter((m) => m && m.email);
+  const auditList = (settings.auditLog || []).filter(Boolean);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -181,7 +232,7 @@ export default function Settings() {
       </div>
 
       {savedSuccess && (
-        <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-2xl text-xs font-bold flex items-center gap-2 animate-in fade-in">
+        <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-2xl text-xs font-bold flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           <span>Settings saved successfully!</span>
         </div>
@@ -193,7 +244,7 @@ export default function Settings() {
         <div className="lg:col-span-7 space-y-6">
           {/* Amazon SES Card */}
           <div className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
-            <div className="flex items-start justify-between">
+            <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3">
                 <div className="w-8 h-8 rounded-xl bg-orange-100 text-orange-800 flex items-center justify-center shrink-0">
                   ☁️
@@ -201,27 +252,64 @@ export default function Settings() {
                 <div>
                   <h2 className="text-sm font-bold text-gray-900">Amazon SES</h2>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Region Asia Pacific (Mumbai) · production access
+                    Region {sesInfo.regionName || sesInfo.region || 'Configured via .env'}
+                    {sesInfo.modeReason ? ` · ${sesInfo.modeReason}` : ''}
                   </p>
                 </div>
               </div>
-              <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
-                ✓ Connected
+              <span
+                className={`text-xs font-bold px-3 py-1 rounded-full border shrink-0 ${
+                  isSesLive
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-amber-50 text-amber-800 border-amber-200'
+                }`}
+              >
+                {isSesLive ? '✓ Live SES' : 'Simulation mode'}
               </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-500 mb-1">
+                  Default From Name
+                </label>
+                <input
+                  type="text"
+                  value={fromName}
+                  onChange={(e) => setFromName(e.target.value)}
+                  placeholder="Your Name or Brand"
+                  className="w-full bg-[#fafafa] border border-gray-200 rounded-xl p-2 text-xs font-bold text-gray-900 focus:outline-none focus:border-black"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-500 mb-1">
+                  Default Reply-To Email
+                </label>
+                <input
+                  type="email"
+                  value={replyTo}
+                  onChange={(e) => setReplyTo(e.target.value)}
+                  placeholder="reply@yourdomain.com"
+                  className="w-full bg-[#fafafa] border border-gray-200 rounded-xl p-2 text-xs font-mono font-bold text-gray-900 focus:outline-none focus:border-black"
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
               <div>
                 <label className="block text-[11px] font-semibold text-gray-500 mb-1">
-                  Send rate (emails a second)
+                  Send rate (emails/sec)
                 </label>
                 <input
                   type="number"
+                  min={1}
                   value={sendRate}
                   onChange={(e) => setSendRate(e.target.value)}
                   className="w-full bg-[#fafafa] border border-gray-200 rounded-xl p-2 text-xs font-bold text-gray-900 focus:outline-none focus:border-black"
                 />
-                <span className="text-[10px] text-gray-400 mt-1 block">Your SES limit is 14</span>
+                {maxSesRate && (
+                  <span className="text-[10px] text-gray-400 mt-1 block">SES max is {maxSesRate}/s</span>
+                )}
               </div>
 
               <div>
@@ -230,6 +318,8 @@ export default function Settings() {
                 </label>
                 <input
                   type="number"
+                  min={0}
+                  max={10}
                   value={retries}
                   onChange={(e) => setRetries(e.target.value)}
                   className="w-full bg-[#fafafa] border border-gray-200 rounded-xl p-2 text-xs font-bold text-gray-900 focus:outline-none focus:border-black"
@@ -241,16 +331,16 @@ export default function Settings() {
                   Daily limit
                 </label>
                 <input
-                  type="text"
+                  type="number"
+                  min={0}
                   value={dailyLimit}
                   onChange={(e) => setDailyLimit(e.target.value)}
                   className="w-full bg-[#fafafa] border border-gray-200 rounded-xl p-2 text-xs font-bold text-gray-900 focus:outline-none focus:border-black"
                 />
-                <span className="text-[10px] text-gray-400 mt-1 block">Rises automatically</span>
               </div>
             </div>
 
-            {/* Events coming back from SES */}
+            {/* Real Events coming back from SES */}
             <div className="pt-2">
               <span className="text-xs font-bold text-gray-700 block mb-2">Events coming back from SES</span>
               <div className="grid grid-cols-3 gap-2">
@@ -258,7 +348,7 @@ export default function Settings() {
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <div className="min-w-0">
                     <p className="text-xs font-bold text-emerald-900">Deliveries</p>
-                    <p className="text-[10px] text-emerald-700 truncate">last 5:10 pm</p>
+                    <p className="text-[10px] text-emerald-700 truncate">{formatShortTime(lastEvents.delivery)}</p>
                   </div>
                 </div>
 
@@ -266,7 +356,7 @@ export default function Settings() {
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <div className="min-w-0">
                     <p className="text-xs font-bold text-emerald-900">Bounces</p>
-                    <p className="text-[10px] text-emerald-700 truncate">last 5:10 pm</p>
+                    <p className="text-[10px] text-emerald-700 truncate">{formatShortTime(lastEvents.bounce)}</p>
                   </div>
                 </div>
 
@@ -274,7 +364,7 @@ export default function Settings() {
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <div className="min-w-0">
                     <p className="text-xs font-bold text-emerald-900">Complaints</p>
-                    <p className="text-[10px] text-emerald-700 truncate">last 5:11 pm</p>
+                    <p className="text-[10px] text-emerald-700 truncate">{formatShortTime(lastEvents.complaint)}</p>
                   </div>
                 </div>
               </div>
@@ -282,20 +372,34 @@ export default function Settings() {
 
             {/* Simulation mode switch */}
             <div className="pt-2 flex items-center justify-between border-t border-gray-100">
-              <span className="text-xs font-medium text-gray-700">Switch to simulation mode for testing</span>
+              <div>
+                <span className="text-xs font-medium text-gray-700 block">
+                  Switch to simulation mode for testing
+                </span>
+                {sesInfo.forcedSimulation && (
+                  <span className="text-[10.5px] text-amber-700">
+                    SES_SIMULATION_MODE is enabled on the server .env
+                  </span>
+                )}
+              </div>
               <button
                 type="button"
-                onClick={() => setIsSimulationMode(!isSimulationMode)}
-                className={`w-10 h-6 rounded-full transition-colors relative p-0.5 ${
+                disabled={Boolean(sesInfo.forcedSimulation)}
+                onClick={handleToggleSimulation}
+                className={`w-10 h-6 rounded-full transition-colors relative p-0.5 disabled:opacity-50 ${
                   isSimulationMode ? 'bg-amber-500' : 'bg-gray-300'
                 }`}
               >
-                <div className={`w-5 h-5 rounded-full bg-white transition-transform ${isSimulationMode ? 'translate-x-4' : 'translate-x-0'}`} />
+                <div
+                  className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                    isSimulationMode ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
               </button>
             </div>
           </div>
 
-          {/* Compliance Card (Editable textarea & switches) */}
+          {/* Compliance Card */}
           <div className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
             <div className="flex items-start gap-3">
               <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
@@ -309,15 +413,15 @@ export default function Settings() {
 
             <div>
               <label className="block text-[11px] font-semibold text-gray-500 mb-1">
-                Business address in the footer (Editable)
+                Business address in the footer (Optional)
               </label>
               <textarea
                 rows={2}
                 value={businessAddress}
                 onChange={(e) => setBusinessAddress(e.target.value)}
+                placeholder="Company name & postal address"
                 className="w-full bg-[#fafafa] border border-gray-200 rounded-xl p-2.5 text-xs font-medium text-gray-900 focus:outline-none focus:border-black"
               />
-              <span className="text-[10.5px] text-gray-400 mt-1 block">Anti-spam laws require a real postal address</span>
             </div>
 
             <div className="space-y-3 pt-2">
@@ -329,9 +433,15 @@ export default function Settings() {
                 <button
                   type="button"
                   onClick={() => setOneClickUnsub(!oneClickUnsub)}
-                  className={`w-10 h-6 rounded-full transition-colors relative p-0.5 ${oneClickUnsub ? 'bg-emerald-600' : 'bg-gray-300'}`}
+                  className={`w-10 h-6 rounded-full transition-colors relative p-0.5 ${
+                    oneClickUnsub ? 'bg-emerald-600' : 'bg-gray-300'
+                  }`}
                 >
-                  <div className={`w-5 h-5 rounded-full bg-white transition-transform ${oneClickUnsub ? 'translate-x-4' : 'translate-x-0'}`} />
+                  <div
+                    className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                      oneClickUnsub ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
                 </button>
               </div>
 
@@ -343,29 +453,41 @@ export default function Settings() {
                 <button
                   type="button"
                   onClick={() => setDoubleOptIn(!doubleOptIn)}
-                  className={`w-10 h-6 rounded-full transition-colors relative p-0.5 ${doubleOptIn ? 'bg-emerald-600' : 'bg-gray-300'}`}
+                  className={`w-10 h-6 rounded-full transition-colors relative p-0.5 ${
+                    doubleOptIn ? 'bg-emerald-600' : 'bg-gray-300'
+                  }`}
                 >
-                  <div className={`w-5 h-5 rounded-full bg-white transition-transform ${doubleOptIn ? 'translate-x-4' : 'translate-x-0'}`} />
+                  <div
+                    className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                      doubleOptIn ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
                 </button>
               </div>
 
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-bold text-gray-900 leading-tight">Let people choose what they get</p>
-                  <p className="text-[11px] text-gray-500">Unsubscribe links open a preference page, not a dead end</p>
+                  <p className="text-[11px] text-gray-500">Unsubscribe links open a preference page</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setPreferencePage(!preferencePage)}
-                  className={`w-10 h-6 rounded-full transition-colors relative p-0.5 ${preferencePage ? 'bg-emerald-600' : 'bg-gray-300'}`}
+                  className={`w-10 h-6 rounded-full transition-colors relative p-0.5 ${
+                    preferencePage ? 'bg-emerald-600' : 'bg-gray-300'
+                  }`}
                 >
-                  <div className={`w-5 h-5 rounded-full bg-white transition-transform ${preferencePage ? 'translate-x-4' : 'translate-x-0'}`} />
+                  <div
+                    className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                      preferencePage ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Contact fields Card (Add Field, Edit, Delete) */}
+          {/* Contact fields Card */}
           <div className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -373,6 +495,7 @@ export default function Settings() {
                 <p className="text-xs text-gray-400">Use them in segments and as merge tags</p>
               </div>
               <button
+                type="button"
                 onClick={() => setShowAddFieldModal(true)}
                 className="px-3 py-1.5 bg-black hover:bg-zinc-800 text-white text-xs font-bold rounded-xl transition-colors shadow-2xs flex items-center gap-1"
               >
@@ -381,12 +504,15 @@ export default function Settings() {
               </button>
             </div>
 
-            {/* Modal: Add Custom Field */}
             {showAddFieldModal && (
-              <form onSubmit={handleCreateField} className="p-4 bg-purple-50/70 border border-purple-200 rounded-2xl space-y-3 animate-in fade-in">
+              <form onSubmit={handleCreateField} className="p-4 bg-purple-50/70 border border-purple-200 rounded-2xl space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs font-bold text-purple-900">Create New Contact Field</h3>
-                  <button type="button" onClick={() => setShowAddFieldModal(false)} className="text-gray-400 hover:text-black">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddFieldModal(false)}
+                    className="text-gray-400 hover:text-black"
+                  >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
@@ -411,10 +537,10 @@ export default function Settings() {
                       onChange={(e) => setNewFieldType(e.target.value)}
                       className="w-full bg-white border border-gray-200 rounded-xl p-2 font-medium"
                     >
-                      <option value="Text">Text</option>
-                      <option value="Number">Number</option>
-                      <option value="Date">Date</option>
-                      <option value="Choice: Free, Pro, Business">Choice</option>
+                      <option value="text">Text</option>
+                      <option value="number">Number</option>
+                      <option value="date">Date</option>
+                      <option value="choice">Choice</option>
                     </select>
                   </div>
                 </div>
@@ -448,20 +574,24 @@ export default function Settings() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-gray-800 font-medium">
-                  {settings.fields.map((fld) => (
-                    <tr key={fld.name} className="hover:bg-white transition-colors">
+                  {fieldsList.map((fld) => (
+                    <tr key={fld.key || fld.name} className="hover:bg-white transition-colors">
                       <td className="py-2.5 px-3 font-bold">{fld.name}</td>
-                      <td className="py-2.5 px-3 text-gray-500">{fld.type}</td>
-                      <td className="py-2.5 px-3 font-mono text-purple-700">{fld.tag}</td>
+                      <td className="py-2.5 px-3 text-gray-500 capitalize">{fld.type}</td>
+                      <td className="py-2.5 px-3 font-mono text-purple-700">{`{{${fld.key}}}`}</td>
                       <td className="py-2.5 px-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteField(fld.name)}
-                          className="p-1 hover:text-rose-600 rounded text-gray-400 transition-colors"
-                          title="Delete field"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 inline" />
-                        </button>
+                        {!fld.builtIn ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteField(fld.key)}
+                            className="p-1 hover:text-rose-600 rounded text-gray-400 transition-colors"
+                            title="Delete field"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 inline" />
+                          </button>
+                        ) : (
+                          <span className="text-[10px] text-gray-400">Built-in</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -473,12 +603,13 @@ export default function Settings() {
 
         {/* Right Column (5 cols) */}
         <div className="lg:col-span-5 space-y-6">
-          {/* Domains Card (Add Domain & Manage) */}
+          {/* Domains Card */}
           <div className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-bold text-gray-900">Domains</h2>
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={() => setShowAddDomainModal(true)}
                   className="text-xs font-bold text-black hover:underline flex items-center gap-1"
                 >
@@ -487,6 +618,7 @@ export default function Settings() {
                 </button>
                 <span className="text-gray-300">|</span>
                 <button
+                  type="button"
                   onClick={() => navigate('/domains')}
                   className="text-xs font-semibold text-gray-600 hover:text-black"
                 >
@@ -495,9 +627,8 @@ export default function Settings() {
               </div>
             </div>
 
-            {/* Modal: Add Domain */}
             {showAddDomainModal && (
-              <form onSubmit={handleCreateDomain} className="p-3 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-2 animate-in fade-in">
+              <form onSubmit={handleCreateDomain} className="p-3 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-amber-900">Add Sending Domain</span>
                   <button type="button" onClick={() => setShowAddDomainModal(false)}>
@@ -506,17 +637,14 @@ export default function Settings() {
                 </div>
                 <input
                   type="text"
-                  placeholder="e.g. mail.yourcompany.com"
+                  placeholder="e.g. electronicdiplomacy.com"
                   value={newDomainName}
                   onChange={(e) => setNewDomainName(e.target.value)}
                   className="w-full bg-white border border-gray-200 rounded-xl p-2 text-xs font-mono font-bold"
                   required
                 />
                 <div className="flex justify-end gap-1.5">
-                  <button
-                    type="submit"
-                    className="px-3 py-1 bg-black text-white text-xs font-bold rounded-lg"
-                  >
+                  <button type="submit" className="px-3 py-1 bg-black text-white text-xs font-bold rounded-lg">
                     Save Domain
                   </button>
                 </div>
@@ -524,39 +652,51 @@ export default function Settings() {
             )}
 
             <div className="space-y-2">
-              {settings.domains.map((dom) => (
-                <div 
-                  key={dom.name}
-                  onClick={() => navigate('/domains')}
-                  className="p-3.5 rounded-2xl bg-amber-50/60 hover:bg-amber-50 border border-amber-200 flex items-center justify-between cursor-pointer transition-colors"
-                >
-                  <span className="text-xs font-bold text-gray-900 font-mono">{dom.name}</span>
-                  <span className="text-[11px] font-semibold bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full">
-                    {dom.verifiedRecords} of {dom.totalRecords} records
-                  </span>
-                </div>
-              ))}
+              {domainsList.length === 0 ? (
+                <p className="text-xs text-gray-400 py-2">No sending domains added yet.</p>
+              ) : (
+                domainsList.map((dom) => {
+                  const passed = Object.values(dom.records || {}).filter((v) => v === 'pass').length;
+                  return (
+                    <div
+                      key={dom.name}
+                      onClick={() => navigate('/domains')}
+                      className="p-3.5 rounded-2xl bg-amber-50/60 hover:bg-amber-50 border border-amber-200 flex items-center justify-between cursor-pointer transition-colors"
+                    >
+                      <span className="text-xs font-bold text-gray-900 font-mono">{dom.name}</span>
+                      <span className="text-[11px] font-semibold bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full">
+                        {passed} of 3 records
+                      </span>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 
-          {/* Sender emails Card (Add Sender Email) */}
+          {/* Sender emails Card */}
           <div className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-gray-900">Sender emails</h2>
+              <div>
+                <h2 className="text-sm font-bold text-gray-900">Sender emails</h2>
+                <p className="text-[11px] text-gray-400">
+                  Loaded automatically from .env (`SES_FROM_EMAIL`) or added here
+                </p>
+              </div>
               <button
+                type="button"
                 onClick={() => setShowAddSenderModal(true)}
-                className="text-xs font-bold text-black hover:underline flex items-center gap-1"
+                className="text-xs font-bold text-black hover:underline flex items-center gap-1 shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add sender</span>
               </button>
             </div>
 
-            {/* Modal: Add Sender Email */}
             {showAddSenderModal && (
-              <form onSubmit={handleCreateSender} className="p-3 bg-gray-50 border border-gray-200 rounded-2xl space-y-2 animate-in fade-in">
+              <form onSubmit={handleCreateSender} className="p-3 bg-gray-50 border border-gray-200 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-gray-800">Add Verified Sender Email</span>
+                  <span className="text-xs font-bold text-gray-800">Add Sender Email</span>
                   <button type="button" onClick={() => setShowAddSenderModal(false)}>
                     <X className="w-3.5 h-3.5 text-gray-400" />
                   </button>
@@ -572,34 +712,76 @@ export default function Settings() {
                 <div className="flex justify-end gap-1.5">
                   <button
                     type="submit"
-                    className="px-3 py-1 bg-black text-white text-xs font-bold rounded-lg"
+                    disabled={addingSender}
+                    className="px-3 py-1 bg-black text-white disabled:bg-gray-400 text-xs font-bold rounded-lg"
                   >
-                    Verify &amp; Add
+                    {addingSender ? 'Adding...' : 'Verify & Add'}
                   </button>
                 </div>
               </form>
             )}
 
             <div className="space-y-2 text-xs">
-              {settings.senders.map((sender) => (
-                <div key={sender.email} className="p-3 rounded-2xl bg-[#fafafa] flex items-center justify-between border border-gray-100">
-                  <div>
-                    <p className="font-mono text-gray-900 font-bold">{sender.email}</p>
-                    {sender.isDefault && <span className="text-[10px] text-gray-400">Default</span>}
+              {sendersList.length === 0 ? (
+                <p className="text-xs text-gray-400 py-2">
+                  No sender email configured yet. Set `SES_FROM_EMAIL` in `.env` or add one here.
+                </p>
+              ) : (
+                sendersList.map((sender) => (
+                  <div
+                    key={sender.email}
+                    className="p-3 rounded-2xl bg-[#fafafa] flex items-center justify-between gap-2 border border-gray-100"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-mono text-gray-900 font-bold truncate">{sender.email}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {sender.isDefault && <span className="text-[10px] font-semibold text-gray-500">Default</span>}
+                        {sender.fromEnv && <span className="text-[10px] text-blue-600 font-medium">From .env</span>}
+                        {!sender.isDefault && (
+                          <button
+                            type="button"
+                            onClick={() => setDefaultSenderEmail(sender.email)}
+                            className="text-[10px] text-gray-500 hover:text-black underline"
+                          >
+                            Make default
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {sender.verified !== false ? (
+                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
+                          ✓ Verified
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" />
+                          <span>{sender.status || 'Pending'}</span>
+                        </span>
+                      )}
+                      {!sender.fromEnv && (
+                        <button
+                          type="button"
+                          onClick={() => removeSenderEmail(sender.email)}
+                          className="p-1 text-gray-400 hover:text-rose-600 rounded"
+                          title="Remove sender"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
-                    ✓ Verified
-                  </span>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 
-          {/* Team Card (Invite Member with inputs) */}
+          {/* Team Card */}
           <div className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-bold text-gray-900">Team</h2>
               <button
+                type="button"
                 onClick={() => setShowInviteModal(true)}
                 className="text-xs font-bold text-black hover:underline flex items-center gap-1"
               >
@@ -608,9 +790,8 @@ export default function Settings() {
               </button>
             </div>
 
-            {/* Modal: Invite Team Member */}
             {showInviteModal && (
-              <form onSubmit={handleInviteMember} className="p-3.5 bg-gray-50 border border-gray-200 rounded-2xl space-y-2.5 text-xs animate-in fade-in">
+              <form onSubmit={handleInviteMember} className="p-3.5 bg-gray-50 border border-gray-200 rounded-2xl space-y-2.5 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-gray-900">Invite New Team Member</span>
                   <button type="button" onClick={() => setShowInviteModal(false)}>
@@ -642,10 +823,7 @@ export default function Settings() {
                   <option value="Viewer">Viewer (Reports only)</option>
                 </select>
                 <div className="flex justify-end gap-1.5 pt-1">
-                  <button
-                    type="submit"
-                    className="px-3.5 py-1.5 bg-black text-white text-xs font-bold rounded-xl shadow-xs"
-                  >
+                  <button type="submit" className="px-3.5 py-1.5 bg-black text-white text-xs font-bold rounded-xl shadow-xs">
                     Send Invitation
                   </button>
                 </div>
@@ -653,18 +831,21 @@ export default function Settings() {
             )}
 
             <div className="space-y-2 text-xs">
-              {settings.team.map((mem) => (
-                <div key={mem.email} className="p-2.5 rounded-2xl bg-[#fafafa] flex items-center justify-between border border-gray-100">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-black text-white font-bold text-xs flex items-center justify-center">
-                      {mem.avatar}
+              {teamList.map((mem) => (
+                <div
+                  key={mem.id || mem.email}
+                  className="p-2.5 rounded-2xl bg-[#fafafa] flex items-center justify-between border border-gray-100"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-full bg-black text-white font-bold text-xs flex items-center justify-center shrink-0">
+                      {mem.initials || mem.avatar || (mem.name?.[0] || 'U').toUpperCase()}
                     </div>
-                    <div>
-                      <p className="font-bold text-gray-900">{mem.name}</p>
-                      <p className="text-[10.5px] text-gray-400 font-mono truncate max-w-[140px] sm:max-w-none">{mem.email}</p>
+                    <div className="min-w-0">
+                      <p className="font-bold text-gray-900 truncate">{mem.name}</p>
+                      <p className="text-[10.5px] text-gray-400 font-mono truncate">{mem.email}</p>
                     </div>
                   </div>
-                  <span className="text-[11px] font-bold px-2 py-0.5 bg-gray-100 text-gray-700 rounded-md">
+                  <span className="text-[11px] font-bold px-2 py-0.5 bg-gray-100 text-gray-700 rounded-md shrink-0">
                     {mem.role}
                   </span>
                 </div>
@@ -676,35 +857,27 @@ export default function Settings() {
             </p>
           </div>
 
-          {/* Audit log Card */}
+          {/* Real Audit log Card */}
           <div className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-3">
             <h2 className="text-sm font-bold text-gray-900">Audit log</h2>
 
-            <div className="space-y-3 pt-1 text-xs">
-              <div className="flex items-start gap-2.5">
-                <span className="w-2 h-2 rounded-full bg-amber-500 mt-1.5 shrink-0" />
-                <div>
-                  <p className="font-bold text-gray-900">Admin paused November newsletter</p>
-                  <p className="text-[11px] text-gray-400">Today 5:12 pm</p>
-                </div>
+            {auditList.length === 0 ? (
+              <p className="text-xs text-gray-400 py-2">No audit entries yet.</p>
+            ) : (
+              <div className="space-y-3 pt-1 text-xs">
+                {auditList.map((entry, idx) => (
+                  <div key={`${entry.at || idx}-${idx}`} className="flex items-start gap-2.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
+                    <div>
+                      <p className="font-bold text-gray-900">
+                        {entry.actor} {entry.action}
+                      </p>
+                      <p className="text-[11px] text-gray-400">{formatShortTime(entry.at)}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
-
-              <div className="flex items-start gap-2.5">
-                <span className="w-2 h-2 rounded-full bg-purple-500 mt-1.5 shrink-0" />
-                <div>
-                  <p className="font-bold text-gray-900">Sanduni sent a test of December newsletter</p>
-                  <p className="text-[11px] text-gray-400">Today 4:58 pm</p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-2.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
-                <div>
-                  <p className="font-bold text-gray-900">Admin turned on the Welcome series</p>
-                  <p className="text-[11px] text-gray-400">14 Nov</p>
-                </div>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </div>

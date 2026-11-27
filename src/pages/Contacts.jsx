@@ -303,17 +303,23 @@ export default function Contacts() {
 
                     <td className="py-3 px-3">
                       <div className="flex flex-wrap gap-1">
-                        {contact.groups.map((grp, i) => (
-                          <span key={i} className="text-[11px] text-gray-600 bg-gray-100/80 px-1.5 py-0.5 rounded">
-                            {grp}
+                        {(contact.groups || []).map((grp, i) => (
+                          <span key={typeof grp === 'string' ? grp : grp?.id || i} className="text-[11px] text-gray-600 bg-gray-100/80 px-1.5 py-0.5 rounded">
+                            {typeof grp === 'string' ? grp : grp?.name || ''}
                           </span>
                         ))}
                       </div>
                     </td>
 
                     <td className="py-3 px-3">
-                      <p className="text-gray-900 font-medium">{contact.consent}</p>
-                      <p className="text-[10.5px] text-gray-400">{contact.consentDate}</p>
+                      <p className="text-gray-900 font-medium">
+                        {typeof contact.consent === 'string'
+                          ? contact.consent
+                          : contact.consent?.source || '—'}
+                      </p>
+                      <p className="text-[10.5px] text-gray-400">
+                        {contact.consentDate || (typeof contact.consent === 'object' ? contact.consent?.date : '') || ''}
+                      </p>
                     </td>
 
                     <td className="py-3 px-3">

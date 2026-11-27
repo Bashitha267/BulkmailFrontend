@@ -9,6 +9,7 @@ import {
   templatesApi,
   campaignsApi,
   settingsApi,
+  domainsApi,
   groupsApi,
   segmentsApi,
   automationsApi,
@@ -103,6 +104,8 @@ export function AppProvider({ children }) {
         ...(settingsRes.settings || {}),
         team: settingsRes.team || [],
         auditLog: settingsRes.auditLog || [],
+        sesInfo: settingsRes.ses || null,
+        allowance: settingsRes.allowance || null,
       });
       setIsSimulationMode(summaryRes.sesMode !== 'live');
     } catch (err) {
@@ -298,39 +301,118 @@ export function AppProvider({ children }) {
   // Settings
   const saveSettings = async (payload) => {
     const res = await settingsApi.save(payload);
-    setSettings(res.settings);
+    const fresh = await settingsApi.get().catch(() => null);
+    if (fresh?.settings) {
+      setSettings({
+        ...EMPTY_SETTINGS,
+        ...fresh.settings,
+        team: fresh.team || [],
+        auditLog: fresh.auditLog || [],
+        sesInfo: fresh.ses || null,
+        allowance: fresh.allowance || null,
+      });
+      if (fresh.ses?.mode) {
+        setIsSimulationMode(fresh.ses.mode !== 'live');
+      }
+      notify({ type: 'success', message: 'Settings saved to server.' });
+      return fresh.settings;
+    }
+    setSettings((prev) => ({ ...prev, ...(res.settings || {}) }));
     notify({ type: 'success', message: 'Settings saved to server.' });
     return res.settings;
   };
 
   const addField = async (field) => {
-    const res = await settingsApi.addField(field);
-    setSettings((prev) => ({ ...prev, fields: [...prev.fields, res.field] }));
-    notify({ type: 'success', message: `Field "${res.field.name}" added.` });
+    try {
+      const res = await settingsApi.addField(field);
+      const nextFields = Array.isArray(res?.fields) ? res.fields : [];
+      setSettings((prev) => ({ ...prev, fields: nextFields }));
+      notify({ type: 'success', message: `Field "${field.name}" added.` });
+    } catch (err) {
+      notify({ type: 'error', title: 'Could not add field', message: err.message });
+    }
   };
 
-  const deleteField = async (id) => {
-    const res = await settingsApi.deleteField(id);
-    setSettings((prev) => ({ ...prev, fields: res.fields }));
-    notify({ type: 'info', message: 'Custom field removed.' });
+  const deleteField = async (key) => {
+    try {
+      const res = await settingsApi.deleteField(key);
+      setSettings((prev) => ({ ...prev, fields: res.fields || prev.fields }));
+      notify({ type: 'info', message: 'Custom field removed.' });
+    } catch (err) {
+      notify({ type: 'error', title: 'Could not remove field', message: err.message });
+    }
   };
 
   const addSenderEmail = async (email) => {
-    const res = await settingsApi.addSender(email);
-    setSettings((prev) => ({ ...prev, senders: [...prev.senders, res.sender] }));
-    notify({ type: 'success', message: `Sender ${res.sender.email} added.` });
+    try {
+      const res = await settingsApi.addSender(email);
+      const nextSenders = Array.isArray(res?.senders) ? res.senders.filter(Boolean) : [];
+      setSettings((prev) => ({ ...prev, senders: nextSenders }));
+      notify({
+        type: 'success',
+        title: 'Sender added',
+        message: res?.message || `Sender ${email} added.`,
+      });
+    } catch (err) {
+      notify({ type: 'error', title: 'Could not add sender', message: err.message });
+    }
+  };
+
+  const setDefaultSenderEmail = async (email) => {
+    try {
+      const res = await settingsApi.setDefaultSender(email);
+      const nextSenders = Array.isArray(res?.senders) ? res.senders.filter(Boolean) : [];
+      setSettings((prev) => ({ ...prev, senders: nextSenders }));
+      notify({ type: 'success', message: `${email} set as default sender.` });
+    } catch (err) {
+      notify({ type: 'error', title: 'Could not update default sender', message: err.message });
+    }
+  };
+
+  const removeSenderEmail = async (email) => {
+    try {
+      const res = await settingsApi.removeSender(email);
+      const nextSenders = Array.isArray(res?.senders) ? res.senders.filter(Boolean) : [];
+      setSettings((prev) => ({ ...prev, senders: nextSenders }));
+      notify({ type: 'info', message: `Removed sender ${email}.` });
+    } catch (err) {
+      notify({ type: 'error', title: 'Could not remove sender', message: err.message });
+    }
   };
 
   const addDomain = async (domainName) => {
-    const res = await settingsApi.addDomain(domainName);
-    setSettings((prev) => ({ ...prev, domains: [...prev.domains, res.domain] }));
-    notify({ type: 'success', message: `Domain ${res.domain.name} added.` });
+    try {
+      const res = await domainsApi.add(domainName);
+      if (res?.domain) {
+        setSettings((prev) => ({ ...prev, domains: [...(prev.domains || []), res.domain] }));
+        notify({ type: 'success', message: `Domain ${res.domain.name} added.` });
+      }
+    } catch (err) {
+      notify({ type: 'error', title: 'Could not add domain', message: err.message });
+    }
   };
 
   const inviteTeamMember = async (member) => {
-    const res = await settingsApi.inviteTeam(member);
-    setSettings((prev) => ({ ...prev, team: [...prev.team, res.member] }));
-    notify({ type: 'success', message: `Invitation sent to ${res.member.email}.` });
+    try {
+      const res = await settingsApi.inviteTeam(member);
+      if (Array.isArray(res?.team)) {
+        setSettings((prev) => ({ ...prev, team: res.team }));
+      }
+      notify({
+        type: 'success',
+        title: res?.emailed ? 'Invitation emailed' : 'Team member added',
+        message: res?.emailed
+          ? `Invitation sent to ${member.email}.`
+          : res?.tempPassword
+          ? `Temporary password for ${member.email}: ${res.tempPassword}`
+          : `${member.email} added to team.`,
+        duration: res?.tempPassword ? 10000 : 3500,
+      });
+      return res;
+    } catch (err) {
+      notify({ type: 'error', title: 'Could not invite member', message: err.message });
+      return null;
+    }
   };
 
   return (
@@ -382,6 +464,8 @@ export function AppProvider({ children }) {
         addField,
         deleteField,
         addSenderEmail,
+        setDefaultSenderEmail,
+        removeSenderEmail,
         addDomain,
         inviteTeamMember,
       }}

@@ -120,6 +120,7 @@ export const contactsApi = {
   update: (id, payload) => patch(`/contacts/${enc(id)}`, payload),
   unsubscribe: (id) => post(`/contacts/${enc(id)}/unsubscribe`),
   resubscribe: (id) => post(`/contacts/${enc(id)}/resubscribe`, { confirmed: true }),
+  sendEmail: (id, payload) => post(`/contacts/${enc(id)}/send-email`, payload),
   remove: (id) => del(`/contacts/${enc(id)}`),
   exportCsv: (params = {}) => downloadFile('/contacts/export.csv', params, 'contacts.csv'),
 };
