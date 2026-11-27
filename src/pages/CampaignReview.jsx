@@ -39,11 +39,6 @@ export default function CampaignReview() {
   const [submitting, setSubmitting] = useState(false);
 
   const handleSchedule = async () => {
-    if (!isCheckedConfirmation) {
-      notify({ type: 'warning', message: 'Please confirm that you have checked the test email.' });
-      return;
-    }
-
     setSubmitting(true);
     try {
       const created = await createCampaign(draft);
@@ -234,21 +229,6 @@ export default function CampaignReview() {
 
           {/* Action Box */}
           <div className="bg-white border border-gray-100 rounded-3xl p-5 shadow-2xs space-y-4">
-            <div 
-              onClick={() => setIsCheckedConfirmation(!isCheckedConfirmation)}
-              className="flex items-start gap-2.5 cursor-pointer"
-            >
-              <input
-                type="checkbox"
-                checked={isCheckedConfirmation}
-                onChange={() => {}}
-                className="mt-0.5 rounded text-black focus:ring-black accent-black w-4 h-4 cursor-pointer"
-              />
-              <span className="text-xs font-bold text-gray-900 leading-snug">
-                I’ve checked the test email and I’m ready for this to go to 942 people.
-              </span>
-            </div>
-
             <button
               type="button"
               disabled={submitting}

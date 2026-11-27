@@ -207,11 +207,6 @@ export default function ImportContactsModal({ isOpen, onClose }) {
   };
 
   const handleImport = async () => {
-    if (!agreedConsent) {
-      notify({ type: 'warning', message: 'Please confirm consent compliance before importing.' });
-      return;
-    }
-
     if (validation.ready.length === 0) {
       notify({ type: 'warning', message: 'No valid new contacts to import.' });
       return;
@@ -548,25 +543,26 @@ export default function ImportContactsModal({ isOpen, onClose }) {
               </div>
             </div>
 
-            {/* Step 3: Confirm consent */}
+            {/* Step 3: Import details (Optional) */}
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-900 text-xs font-bold flex items-center justify-center">
                   3
                 </span>
-                <h3 className="font-bold text-sm text-gray-900">Confirm consent</h3>
+                <h3 className="font-bold text-sm text-gray-900">Import source (optional)</h3>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">
-                    Where did these people sign up?
+                    Source label
                   </label>
                   <select
                     value={signupSource}
                     onChange={(e) => setSignupSource(e.target.value)}
                     className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs font-medium text-gray-800 focus:outline-none focus:border-black"
                   >
+                    <option>CSV import</option>
                     <option>In-store signup sheet</option>
                     <option>Website newsletter form</option>
                     <option>Conference / Event</option>
@@ -575,38 +571,13 @@ export default function ImportContactsModal({ isOpen, onClose }) {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">When?</label>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
                   <input
                     type="text"
                     value={signupDate}
                     onChange={(e) => setSignupDate(e.target.value)}
                     className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs font-medium text-gray-800 focus:outline-none focus:border-black"
                   />
-                </div>
-              </div>
-
-              {/* Compliance Guarantee Checkbox Card */}
-              <div
-                onClick={() => setAgreedConsent(!agreedConsent)}
-                className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
-                  agreedConsent
-                    ? 'bg-emerald-50/60 border-emerald-300 text-emerald-950'
-                    : 'bg-gray-50 border-gray-200 text-gray-800'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={agreedConsent}
-                  onChange={() => {}}
-                  className="mt-0.5 rounded text-black focus:ring-black accent-black w-4 h-4 cursor-pointer"
-                />
-                <div>
-                  <p className="text-xs font-bold">
-                    Everyone in this file agreed to get emails from Acme Team.
-                  </p>
-                  <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
-                    Required. We save this with each contact as their consent record. Bought or scraped lists aren’t allowed.
-                  </p>
                 </div>
               </div>
             </div>
@@ -630,7 +601,7 @@ export default function ImportContactsModal({ isOpen, onClose }) {
               <button
                 type="button"
                 onClick={handleImport}
-                disabled={validation.ready.length === 0 || !agreedConsent || importing}
+                disabled={validation.ready.length === 0 || importing}
                 className="px-4 py-2 rounded-xl text-xs font-semibold bg-black text-white hover:bg-zinc-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-1.5 shadow-sm"
               >
                 {importing ? <Spinner className="w-3.5 h-3.5" /> : <Upload className="w-3.5 h-3.5" />}
