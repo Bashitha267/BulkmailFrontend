@@ -1,3 +1,4 @@
+import { campaignsApi } from '../services/api';
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
@@ -11,7 +12,7 @@ import {
 
 export default function Campaigns() {
   const navigate = useNavigate();
-  const { campaigns, dataLoading, resumeCampaign, pauseCampaign, notify } = useApp();
+  const { campaigns, dataLoading, resumeCampaign, pauseCampaign, loadWorkspace, notify } = useApp();
   const [activeTab, setActiveTab] = useState('All');
   const [busyId, setBusyId] = useState(null);
 
@@ -258,9 +259,18 @@ export default function Campaigns() {
                     >
                       Report
                     </button>
-                    {camp.description?.includes('didn’t open') && (
+                    {camp.stats?.sent > 0 && !camp.legacy && (
                       <button
-                        onClick={() => notify({ type: 'info', message: 'Prepared resend for non-openers.' })}
+                        onClick={async () => {
+                          try {
+                            const r = await campaignsApi.resendNonOpeners(camp.id);
+                            await loadWorkspace();
+                            notify({ type: 'success', message: 'Draft created for people who have not opened it.' });
+                            navigate(`/campaigns/${r.campaign.id}/edit`);
+                          } catch (err) {
+                            notify({ type: 'error', message: err.message });
+                          }
+                        }}
                         className="px-3 py-1.5 rounded-xl bg-black text-white text-xs font-bold hover:bg-zinc-800 flex items-center gap-1"
                       >
                         <RotateCcw className="w-3 h-3" />

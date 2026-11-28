@@ -40,12 +40,6 @@ export default function Login() {
     }
   };
 
-  const fillDemo = () => {
-    setUsername('demo');
-    setPassword('password123');
-    setError('');
-  };
-
   return (
     <div className="min-h-screen bg-[#f4f5f7] flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-gray-100 space-y-6">
@@ -118,22 +112,6 @@ export default function Login() {
           </button>
         </form>
 
-        {/* Demo Credentials Helper */}
-        <div className="p-3.5 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-between gap-2 text-xs">
-          <div>
-            <p className="font-bold text-gray-700">Demo account</p>
-            <p className="text-[11px] text-gray-500 font-mono mt-0.5">
-              demo / password123
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={fillDemo}
-            className="px-3 py-1.5 rounded-xl bg-white border border-gray-200 hover:bg-gray-100 text-xs font-bold text-gray-800 transition-colors"
-          >
-            Fill
-          </button>
-        </div>
       </div>
     </div>
   );

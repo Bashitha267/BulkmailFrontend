@@ -4,14 +4,14 @@ import { useApp } from '../context/AppContext';
 import { Spinner } from './Skeleton';
 
 export default function AddContactModal({ isOpen, onClose }) {
-  const { createContact, groups, notify } = useApp();
+  const { createContact, groups, notify, setIsNewGroupModalOpen } = useApp();
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [city, setCity] = useState('');
   const [plan, setPlan] = useState('Free');
-  const [selectedGroups, setSelectedGroups] = useState(['Newsletter']);
+  const [selectedGroups, setSelectedGroups] = useState([]);
   const [saving, setSaving] = useState(false);
 
   if (!isOpen) return null;
@@ -28,16 +28,20 @@ export default function AddContactModal({ isOpen, onClose }) {
       notify({ type: 'warning', message: 'First name and email are required.' });
       return;
     }
+    if (selectedGroups.length === 0) {
+      notify({ type: 'warning', message: 'Pick at least one group, otherwise this contact will not be in any campaign.' });
+      return;
+    }
 
     setSaving(true);
     try {
-      const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
       await createContact({
-        name: fullName,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
         email: email.trim(),
-        city: city.trim() || 'Colombo',
+        city: city.trim(),
         plan,
-        groups: selectedGroups,
+        groupIds: selectedGroups,
         consent: 'Manual entry',
       });
 
@@ -46,7 +50,7 @@ export default function AddContactModal({ isOpen, onClose }) {
       setEmail('');
       setCity('');
       setPlan('Free');
-      setSelectedGroups(['Newsletter']);
+      setSelectedGroups([]);
       onClose();
     } catch (err) {
       notify({ type: 'error', title: 'Could not add contact', message: err.message });
@@ -55,7 +59,7 @@ export default function AddContactModal({ isOpen, onClose }) {
     }
   };
 
-  const groupNames = groups.length > 0 ? groups.map((g) => g.name) : ['Newsletter', 'Customers', 'VIP', 'Beta testers'];
+  
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
@@ -144,25 +148,35 @@ export default function AddContactModal({ isOpen, onClose }) {
 
           <div>
             <label className="block font-bold text-gray-700 mb-1.5">Assign to Groups</label>
-            <div className="grid grid-cols-2 gap-2">
-              {groupNames.map((grp) => {
-                const isChecked = selectedGroups.includes(grp);
-                return (
-                  <div
-                    key={grp}
-                    onClick={() => toggleGroup(grp)}
-                    className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                      isChecked ? 'bg-black text-white border-black font-bold' : 'bg-[#fafafa] border-gray-200 text-gray-700 font-medium'
-                    }`}
-                  >
-                    <span className="truncate">{grp}</span>
-                    <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${isChecked ? 'bg-white text-black' : 'border-gray-400'}`}>
-                      {isChecked && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+            {groups.length === 0 ? (
+              <button
+                type="button"
+                onClick={() => { onClose(); setIsNewGroupModalOpen(true); }}
+                className="w-full p-3 rounded-xl border border-dashed border-gray-300 text-gray-600 font-semibold hover:bg-gray-50"
+              >
+                No groups yet. Create a group first
+              </button>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {groups.map((g) => {
+                  const isChecked = selectedGroups.includes(g.id);
+                  return (
+                    <div
+                      key={g.id}
+                      onClick={() => toggleGroup(g.id)}
+                      className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                        isChecked ? 'bg-black text-white border-black font-bold' : 'bg-[#fafafa] border-gray-200 text-gray-700 font-medium'
+                      }`}
+                    >
+                      <span className="truncate">{g.name}</span>
+                      <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${isChecked ? 'bg-white text-black' : 'border-gray-400'}`}>
+                        {isChecked && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="pt-3 border-t border-gray-100 flex items-center justify-end gap-2">

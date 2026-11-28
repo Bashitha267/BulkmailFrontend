@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { campaignsApi } from '../services/api';
+import { decorateCampaign } from '../lib/campaignView';
 import { DashboardSkeleton, Spinner } from '../components/Skeleton';
 
 export default function CampaignReport() {
@@ -27,9 +28,26 @@ export default function CampaignReport() {
 
     const fetchDetail = async () => {
       try {
-        const res = await campaignsApi.get(id);
+        // The report endpoint has the real SES errors, activity and link clicks.
+        const res = await campaignsApi.report(id);
         if (active && res?.campaign) {
-          setLiveCampaign(res.campaign);
+          const reasonOf = (p) =>
+            p.kind === 'bounce' ? 'Bounced' : p.kind === 'complaint' ? 'Marked as spam' : p.error || 'Failed to send';
+          setLiveCampaign({
+            ...decorateCampaign(res.campaign),
+            problems: (res.problems || []).map((p) => ({
+              recipient: p.name || p.email,
+              email: p.email,
+              reason: reasonOf(p),
+              action: 'View',
+            })),
+            activity: (res.activity || []).map((a) => ({
+              id: a.id,
+              title: a.title,
+              time: a.at ? new Date(a.at).toLocaleString() : '',
+            })),
+            links: res.links,
+          });
         }
       } catch {
         // Fallback to contextCampaign

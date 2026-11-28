@@ -25,6 +25,7 @@ import {
 
 export default function Layout() {
   const { 
+    user,
     dashboardMode, 
     setDashboardMode, 
     isImportModalOpen, 
@@ -48,12 +49,7 @@ export default function Layout() {
     return (
       <div className="min-h-screen bg-[#f3f4f6] text-gray-900 flex flex-col justify-between">
         <header className="p-4 flex items-center justify-between max-w-4xl mx-auto w-full">
-          <Link to="/" className="text-xs text-gray-500 hover:text-black font-semibold flex items-center gap-1.5">
-            ← Back to Admin App
-          </Link>
-          <span className="text-[11px] bg-white border border-gray-200 px-2.5 py-1 rounded-full text-gray-600 font-medium shadow-2xs">
-            Public Subscriber View
-          </span>
+          <span className="text-sm font-bold text-gray-900 flex items-center gap-2"><Mail className="w-4 h-4" /> Bulk Mailer</span>
         </header>
 
         <main className="flex-1 flex items-center justify-center p-3 sm:p-4">
@@ -61,7 +57,7 @@ export default function Layout() {
         </main>
 
         <footer className="p-4 text-center text-xs text-gray-400">
-          Bulk Mailer &copy; 2026 Acme Team
+          Bulk Mailer
         </footer>
       </div>
     );
@@ -96,7 +92,7 @@ export default function Layout() {
             <span className="text-xs">New</span>
           </Link>
           <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-800 flex items-center justify-center font-bold text-xs">
-            AD
+            {user?.initials || ''}
           </div>
         </div>
       </div>

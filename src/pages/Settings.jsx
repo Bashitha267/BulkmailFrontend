@@ -124,7 +124,6 @@ export default function Settings() {
           sendRate: Number(sendRate) || 10,
           retries: Number(retries) || 0,
           dailyLimit: Number(dailyLimit) || 0,
-          simulation: Boolean(isSimulationMode),
         },
         compliance: {
           address: businessAddress,

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { TableSkeleton } from '../components/Skeleton';
@@ -22,7 +23,8 @@ export default function Contacts() {
   const navigate = useNavigate();
 
   const [activeFilter, setActiveFilter] = useState('All');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchParams] = useSearchParams();
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '');
 
   if (dataLoading) {
     return <TableSkeleton rows={7} />;
