@@ -17,14 +17,15 @@ import {
 import { useApp } from '../context/AppContext';
 
 export default function Sidebar({ onClose }) {
-  const { user, logout, contacts, templates, campaigns } = useApp();
+  const { user, logout, contacts, templates, campaigns, summary } = useApp();
+  const [query, setQuery] = React.useState('');
   const navigate = useNavigate();
 
   const navItems = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { name: 'Contacts', path: '/contacts', icon: Users, badge: String(contacts.length) },
-    { name: 'Templates', path: '/templates', icon: LayoutTemplate, badge: String(templates.length), subBadge: 'starters' },
-    { name: 'Campaigns', path: '/campaigns', icon: Send, badge: String(campaigns.length) },
+    { name: 'Contacts', path: '/contacts', icon: Users, badge: String(summary?.counts?.contacts ?? contacts.length) },
+    { name: 'Templates', path: '/templates', icon: LayoutTemplate, badge: String(summary?.counts?.templates ?? templates.length) },
+    { name: 'Campaigns', path: '/campaigns', icon: Send, badge: String(summary?.counts?.campaigns ?? campaigns.length) },
     { name: 'Automations', path: '/automations', icon: Zap, pill: 'New' },
     { name: 'Analytics', path: '/analytics', icon: BarChart3 },
   ];
@@ -48,7 +49,7 @@ export default function Sidebar({ onClose }) {
             </div>
             <div>
               <h1 className="font-bold text-[15px] leading-tight text-gray-900 tracking-tight">Bulk Mailer</h1>
-              <p className="text-xs text-gray-400 font-medium">Acme Team</p>
+              <p className="text-xs text-gray-400 font-medium">{summary?.teamName || user?.teamName || ''}</p>
             </div>
           </Link>
 
@@ -68,7 +69,15 @@ export default function Sidebar({ onClose }) {
           <Search className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
-            placeholder="Search contacts, cam..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && query.trim()) {
+                navigate(`/contacts?q=${encodeURIComponent(query.trim())}`);
+                handleNavClick();
+              }
+            }}
+            placeholder="Search contacts (press Enter)"
             className="w-full bg-[#f4f5f7] hover:bg-gray-200/60 focus:bg-white text-xs pl-9 pr-3 py-2.5 rounded-xl border border-transparent focus:border-gray-300 focus:outline-none transition-all placeholder:text-gray-400 text-gray-800"
           />
         </div>
@@ -121,27 +130,29 @@ export default function Sidebar({ onClose }) {
           })}
         </nav>
 
-        {/* Go-live setup widget */}
-        <div 
-          onClick={() => {
-            navigate('/domains');
-            handleNavClick();
-          }}
-          className="mt-6 mx-1 p-3.5 bg-[#fef3c7]/60 hover:bg-[#fef3c7] border border-[#fde68a] rounded-2xl cursor-pointer transition-all group"
-        >
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-bold text-gray-900">Go-live setup</span>
-            <span className="text-[11px] font-semibold bg-[#fde68a] text-gray-800 px-2 py-0.5 rounded-full">
-              4 of 5
-            </span>
+        {/* Go-live setup widget (real progress from the server) */}
+        {summary?.setup && summary.setup.done < summary.setup.total && (
+          <div
+            onClick={() => {
+              navigate('/settings');
+              handleNavClick();
+            }}
+            className="mt-6 mx-1 p-3.5 bg-[#fef3c7]/60 hover:bg-[#fef3c7] border border-[#fde68a] rounded-2xl cursor-pointer transition-all group"
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-bold text-gray-900">Go-live setup</span>
+              <span className="text-[11px] font-semibold bg-[#fde68a] text-gray-800 px-2 py-0.5 rounded-full">
+                {summary.setup.done} of {summary.setup.total}
+              </span>
+            </div>
+            <div className="w-full bg-amber-200/70 h-1.5 rounded-full overflow-hidden mb-2">
+              <div className="bg-amber-600 h-full rounded-full" style={{ width: `${(summary.setup.done / summary.setup.total) * 100}%` }} />
+            </div>
+            {summary.setup.next && (
+              <p className="text-[11.5px] text-amber-900 font-medium leading-tight">Next: {summary.setup.next}</p>
+            )}
           </div>
-          <div className="w-full bg-amber-200/70 h-1.5 rounded-full overflow-hidden mb-2">
-            <div className="bg-amber-600 h-full rounded-full w-4/5" />
-          </div>
-          <p className="text-[11.5px] text-amber-900 font-medium leading-tight">
-            Next: add your DMARC record
-          </p>
-        </div>
+        )}
       </div>
 
       {/* Bottom section: Settings & User Profile */}

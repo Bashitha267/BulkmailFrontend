@@ -44,6 +44,7 @@ export default function CampaignEdit() {
     dataLoading,
     loadWorkspace,
     setIsNewGroupModalOpen,
+    summary,
     notify,
   } = useApp();
 
@@ -640,6 +641,27 @@ export default function CampaignEdit() {
                   })}
                 </div>
               )}
+            </div>
+
+            {/* Everyone who is subscribed, no group needed */}
+            <div
+              onClick={() => toggleSegment('all')}
+              className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
+                selectedSegmentIds.includes('all')
+                  ? 'bg-black text-white border-black shadow-xs'
+                  : 'bg-gray-50 border-gray-200 hover:bg-gray-100 text-gray-800'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <input
+                  type="checkbox"
+                  checked={selectedSegmentIds.includes('all')}
+                  onChange={() => {}}
+                  className="rounded text-black focus:ring-black accent-black w-4 h-4 cursor-pointer shrink-0"
+                />
+                <span className="text-xs font-bold truncate">All subscribed contacts (including people in no group)</span>
+              </div>
+              <span className="text-xs font-medium shrink-0 opacity-70">{summary?.counts?.contacts ?? ''}</span>
             </div>
 
             {/* Real Segments Grid */}

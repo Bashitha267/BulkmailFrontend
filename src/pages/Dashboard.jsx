@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { dashboardApi } from '../services/api';
 import { Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { DashboardSkeleton, Spinner } from '../components/Skeleton';
@@ -39,19 +40,44 @@ export default function Dashboard() {
   } = useApp();
   const navigate = useNavigate();
   const [actionBusyId, setActionBusyId] = useState(null);
+  const [dash, setDash] = useState(null);
+  const { user } = useApp();
+  const sendingNow = campaigns.some((c) => c.status === 'Sending');
+
+  // Real numbers, alerts and setup status straight from the backend.
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      dashboardApi
+        .dashboard()
+        .then((r) => alive && setDash(r))
+        .catch(() => {});
+    load();
+    const t = setInterval(load, sendingNow ? 4000 : 30000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [sendingNow, campaigns.length]);
 
   if (dataLoading) {
     return <DashboardSkeleton />;
   }
 
-  const canReceiveCount = contacts.filter((c) => c.status === 'Subscribed').length;
-  const totalSent = campaigns.reduce((sum, c) => sum + (c.sent || c.progress?.sent || 0), 0);
-  const totalDelivered = campaigns.reduce((sum, c) => sum + (c.delivered || c.stats?.delivered || 0), 0);
-  const totalBounced = campaigns.reduce((sum, c) => sum + (c.bounced || c.stats?.bounced || 0), 0);
-  const totalComplaints = campaigns.reduce((sum, c) => sum + (c.complaints || c.stats?.complaints || 0), 0);
+  const contactsTotal = dash?.counts?.total ?? contacts.length;
+  const canReceiveCount = dash?.counts?.receivable ?? contacts.filter((c) => c.status === 'Subscribed').length;
+  const totalSent = dash?.totals?.sent ?? campaigns.reduce((sum, c) => sum + (c.sent || 0), 0);
+  const totalDelivered = dash?.totals?.delivered ?? campaigns.reduce((sum, c) => sum + (c.delivered || 0), 0);
+  const totalBounced = dash?.totals?.bounced ?? campaigns.reduce((sum, c) => sum + (c.bounced || 0), 0);
+  const totalComplaints = dash?.totals?.complaints ?? campaigns.reduce((sum, c) => sum + (c.complaints || 0), 0);
   const deliveredPct = totalSent > 0 ? ((totalDelivered / totalSent) * 100).toFixed(1) : '0.0';
   const bouncedPct = totalSent > 0 ? ((totalBounced / totalSent) * 100).toFixed(1) : '0.0';
-  const complaintPct = totalSent > 0 ? ((totalComplaints / totalSent) * 100).toFixed(2) : '0.00';
+  const complaintPct = totalDelivered > 0 ? ((totalComplaints / totalDelivered) * 100).toFixed(2) : '0.00';
+  const attention = dash?.attention || [];
+  const records = dash?.deliverability?.domain?.records || {};
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const nowLabel = new Date().toLocaleString(undefined, { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
 
   const activeOrPausedCampaign =
     campaigns.find((c) => c.status === 'Sending') ||
@@ -280,19 +306,19 @@ export default function Dashboard() {
       {/* Top Banner Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900">Good evening, Admin</h1>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900">{greeting}, {user?.name || 'there'}</h1>
           <p className="text-xs text-gray-500 font-medium mt-1 flex items-center gap-1.5 flex-wrap">
             <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping inline-block" />
             <span className="font-semibold text-gray-700">Live</span>
             <span>·</span>
-            <span>Friday 20 November, 5:12 pm</span>
+            <span>{nowLabel}</span>
           </p>
         </div>
 
         <div className="flex items-center flex-wrap gap-2">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-            <span className="w-2 h-2 rounded-full bg-emerald-600" />
-            <span>Amazon SES · connected</span>
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-semibold border ${isSimulationMode ? 'bg-amber-50 text-amber-900 border-amber-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
+            <span className={`w-2 h-2 rounded-full ${isSimulationMode ? 'bg-amber-500' : 'bg-emerald-600'}`} />
+            <span>{isSimulationMode ? 'Simulation mode · nothing is really sent' : 'Amazon SES · live'}</span>
           </div>
 
           <button
@@ -313,28 +339,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Multi-Group Amazon SES Quick Dispatch Banner */}
-      <div className="bg-gradient-to-r from-neutral-900 to-zinc-800 text-white p-4 rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-sm border border-zinc-700">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-amber-400 text-black flex items-center justify-center font-bold text-sm shrink-0">
-            ⚡
-          </div>
-          <div>
-            <h3 className="font-bold text-sm text-white">Automated Multi-Group Amazon SES Sending</h3>
-            <p className="text-xs text-zinc-300 mt-0.5">
-              Select multiple groups, assign distinct templates, and blast ~500 emails automatically in ~50 seconds with duplicate protection.
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={() => navigate('/campaigns/new')}
-          className="px-4 py-2 bg-white text-black hover:bg-zinc-100 font-bold text-xs rounded-xl transition-all shrink-0 shadow-sm"
-        >
-          Create Multi-Group Blast →
-        </button>
-      </div>
-
       {/* 5 KPI Metric Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
         {/* Contacts */}
@@ -345,7 +349,7 @@ export default function Dashboard() {
               <Users className="w-3.5 h-3.5" />
             </div>
           </div>
-          <p className="text-2xl font-bold text-gray-900 tracking-tight">{contacts.length.toLocaleString()}</p>
+          <p className="text-2xl font-bold text-gray-900 tracking-tight">{contactsTotal.toLocaleString()}</p>
           <p className="text-[11px] text-gray-500 mt-1 font-medium">{canReceiveCount.toLocaleString()} can receive</p>
         </div>
 
@@ -394,7 +398,7 @@ export default function Dashboard() {
             </div>
           </div>
           <p className="text-2xl font-bold text-gray-900 tracking-tight">{complaintPct}%</p>
-          <p className="text-[11px] text-gray-500 mt-1 font-medium">{totalComplaints} · limit is 0.3%</p>
+          <p className="text-[11px] text-gray-500 mt-1 font-medium">{totalComplaints} · keep under 0.3%</p>
         </div>
       </div>
 
@@ -428,7 +432,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <h3 className="font-bold text-sm text-gray-900 leading-tight">
-                      {activeOrPausedCampaign.status === 'Sending' ? 'Sending via Amazon SES' : 'Paused'}
+                      {activeOrPausedCampaign.status === 'Sending' ? (isSimulationMode ? 'Sending (simulation)' : 'Sending via Amazon SES') : 'Paused'}
                     </h3>
                     <p className="text-xs text-gray-600 mt-0.5">
                       {activeOrPausedCampaign.title} · {activeOrPausedCampaign.subtitle}
@@ -485,7 +489,7 @@ export default function Dashboard() {
 
               <p className="text-[11.5px] text-gray-600 font-medium">
                 {activeOrPausedCampaign.status === 'Sending'
-                  ? 'Cron worker is delivering batches smoothly within Amazon SES limits.'
+                  ? 'Emails are going out within your daily and per-second limits.'
                   : 'Nothing more goes out until you resume. Recipients already sent to won’t get it twice.'}
               </p>
             </div>
@@ -599,83 +603,41 @@ export default function Dashboard() {
             </div>
 
             <div className="space-y-3">
-              {/* DMARC record missing */}
-              <div className="p-3.5 rounded-2xl bg-rose-50/50 border border-rose-100 flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center shrink-0 mt-0.5">
-                    <ShieldAlert className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-xs text-gray-900 leading-tight">DMARC record missing</h3>
-                    <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">
-                      Gmail and Yahoo require it for bulk mail
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => navigate('/domains')}
-                  className="px-3 py-1 bg-white hover:bg-rose-50 text-gray-800 border border-gray-200 text-xs font-bold rounded-lg transition-colors shrink-0"
-                >
-                  Fix
-                </button>
-              </div>
-
-              {/* Paused campaigns */}
-              {campaigns
-                .filter((c) => c.status === 'Paused')
-                .slice(0, 1)
-                .map((pausedCamp) => (
+              {attention.length === 0 && (
+                <p className="text-xs text-gray-500 py-2">Nothing needs your attention right now.</p>
+              )}
+              {attention.map((item) => {
+                const paused = item.kind === 'paused';
+                const Icon = paused ? Pause : item.kind === 'complaint' ? Flag : item.kind === 'warn' ? AlertTriangle : ShieldAlert;
+                const camp = item.campaignId ? campaigns.find((c) => c.id === item.campaignId) : null;
+                return (
                   <div
-                    key={pausedCamp.id}
-                    className="p-3.5 rounded-2xl bg-amber-50/50 border border-amber-100 flex items-start justify-between gap-3"
+                    key={item.key}
+                    className={`p-3.5 rounded-2xl border flex items-start justify-between gap-3 ${
+                      item.kind === 'error' ? 'bg-rose-50/50 border-rose-100' : paused || item.kind === 'warn' ? 'bg-amber-50/50 border-amber-100' : 'bg-gray-50 border-gray-100'
+                    }`}
                   >
                     <div className="flex items-start gap-3">
-                      <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
-                        <Pause className="w-3.5 h-3.5 fill-current" />
+                      <div className="w-7 h-7 rounded-lg bg-white/70 text-gray-700 flex items-center justify-center shrink-0 mt-0.5">
+                        <Icon className="w-4 h-4" />
                       </div>
                       <div>
-                        <h3 className="font-bold text-xs text-gray-900 leading-tight">
-                          {pausedCamp.title} paused
-                        </h3>
-                        <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">
-                          {pausedCamp.progress?.waiting || 0} people still waiting
-                        </p>
+                        <h3 className="font-bold text-xs text-gray-900 leading-tight">{item.title}</h3>
+                        <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">{item.detail}</p>
                       </div>
                     </div>
-                    <button
-                      disabled={actionBusyId === pausedCamp.id}
-                      onClick={() => handleTogglePauseResume(pausedCamp)}
-                      className="px-3 py-1 bg-white hover:bg-amber-50 text-gray-800 border border-gray-200 text-xs font-bold rounded-lg transition-colors shrink-0"
-                    >
-                      {actionBusyId === pausedCamp.id ? '...' : 'Resume'}
-                    </button>
+                    {item.action && (
+                      <button
+                        disabled={actionBusyId === item.campaignId}
+                        onClick={() => (camp ? handleTogglePauseResume(camp) : item.to && navigate(item.to))}
+                        className="px-3 py-1 bg-white hover:bg-gray-50 text-gray-800 border border-gray-200 text-xs font-bold rounded-lg transition-colors shrink-0"
+                      >
+                        {actionBusyId === item.campaignId ? '...' : item.action}
+                      </button>
+                    )}
                   </div>
-                ))}
-
-              {/* Real spam complaints count */}
-              {contacts.filter((c) => c.status === 'Complained').length > 0 && (
-                <div className="p-3.5 rounded-2xl bg-gray-50 border border-gray-100 flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <div className="w-7 h-7 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center shrink-0 mt-0.5">
-                      <Flag className="w-3.5 h-3.5" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-xs text-gray-900 leading-tight">
-                        {contacts.filter((c) => c.status === 'Complained').length} spam complaint
-                      </h3>
-                      <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
-                        Contact suppressed automatically
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => navigate('/contacts')}
-                    className="px-3 py-1 bg-white hover:bg-gray-100 text-gray-800 border border-gray-200 text-xs font-bold rounded-lg transition-colors shrink-0"
-                  >
-                    View
-                  </button>
-                </div>
-              )}
+                );
+              })}
             </div>
           </div>
 
@@ -686,25 +648,24 @@ export default function Dashboard() {
                 <h2 className="text-base font-bold text-gray-900">Deliverability</h2>
                 <p className="text-xs text-gray-400 font-medium">What inbox providers check</p>
               </div>
-              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                Good
+              <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${records.spf === 'pass' && records.dkim === 'pass' && records.dmarc === 'pass' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-200'}`}>
+                {records.spf === 'pass' && records.dkim === 'pass' && records.dmarc === 'pass' ? 'Good' : 'Needs setup'}
               </span>
             </div>
 
-            {/* 3 Status Pills */}
+            {/* 3 Status Pills (real DNS check results) */}
             <div className="grid grid-cols-3 gap-2 mb-4 text-center">
-              <div className="p-2.5 rounded-2xl bg-emerald-50/70 border border-emerald-100">
-                <p className="text-[11px] font-bold text-gray-700">SPF</p>
-                <p className="text-xs font-extrabold text-emerald-700 mt-0.5">✓ Pass</p>
-              </div>
-              <div className="p-2.5 rounded-2xl bg-emerald-50/70 border border-emerald-100">
-                <p className="text-[11px] font-bold text-gray-700">DKIM</p>
-                <p className="text-xs font-extrabold text-emerald-700 mt-0.5">✓ Pass</p>
-              </div>
-              <div className="p-2.5 rounded-2xl bg-rose-50/70 border border-rose-100">
-                <p className="text-[11px] font-bold text-gray-700">DMARC</p>
-                <p className="text-xs font-extrabold text-rose-600 mt-0.5">! Missing</p>
-              </div>
+              {[['SPF', records.spf], ['DKIM', records.dkim], ['DMARC', records.dmarc]].map(([label, val]) => {
+                const ok = val === 'pass';
+                return (
+                  <div key={label} className={`p-2.5 rounded-2xl border ${ok ? 'bg-emerald-50/70 border-emerald-100' : 'bg-rose-50/70 border-rose-100'}`}>
+                    <p className="text-[11px] font-bold text-gray-700">{label}</p>
+                    <p className={`text-xs font-extrabold mt-0.5 ${ok ? 'text-emerald-700' : 'text-rose-600'}`}>
+                      {ok ? '✓ Pass' : dash?.deliverability?.domain ? '! Not confirmed' : 'Not set up'}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
 
             {/* Complaint Rate */}
@@ -738,7 +699,7 @@ export default function Dashboard() {
             {/* Guarantee Pill */}
             <div className="flex items-center gap-2 p-2.5 bg-emerald-50/70 rounded-2xl text-xs font-bold text-emerald-800 border border-emerald-100">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>One-click unsubscribe on every email</span>
+              <span>{dash?.deliverability?.oneClickUnsubscribe === false ? 'One-click unsubscribe is off' : 'One-click unsubscribe on every email'}</span>
             </div>
           </div>
         </div>

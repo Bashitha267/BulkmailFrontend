@@ -16,18 +16,12 @@ import {
   dashboardApi,
 } from '../services/api';
 import ToastContainer from '../components/ToastContainer';
+import { decorateCampaign, decorateCampaigns } from '../lib/campaignView';
 
 const AppContext = createContext();
 
 const EMPTY_SETTINGS = {
-  ses: {
-    region: 'Asia Pacific (Mumbai)',
-    status: 'Connected',
-    sendRate: 10,
-    sesLimit: 14,
-    retries: 3,
-    dailyLimit: '1,000 (warm-up)',
-  },
+  ses: { sendRate: 10, retries: 3, dailyLimit: 0 },
   compliance: {
     address: '',
     oneClickUnsubscribe: true,
@@ -46,7 +40,7 @@ export function AppProvider({ children }) {
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
 
-  const [isSimulationMode, setIsSimulationMode] = useState(true);
+  const [isSimulationMode, setIsSimulationMode] = useState(false);
   const [dashboardMode, setDashboardMode] = useState('live');
 
   const [contacts, setContacts] = useState([]);
@@ -56,6 +50,7 @@ export function AppProvider({ children }) {
   const [segments, setSegments] = useState([]);
   const [automations, setAutomations] = useState([]);
   const [settings, setSettings] = useState(EMPTY_SETTINGS);
+  const [summary, setSummary] = useState(null);
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isNewGroupModalOpen, setIsNewGroupModalOpen] = useState(false);
@@ -94,7 +89,7 @@ export function AppProvider({ children }) {
           dashboardApi.summary(),
         ]);
       setContacts(contactsRes.contacts || []);
-      setCampaigns(campaignsRes.campaigns || []);
+      setCampaigns(decorateCampaigns(campaignsRes.campaigns));
       setTemplates(templatesRes.templates || []);
       setGroups(groupsRes.groups || []);
       setSegments(segmentsRes.segments || []);
@@ -107,6 +102,7 @@ export function AppProvider({ children }) {
         sesInfo: settingsRes.ses || null,
         allowance: settingsRes.allowance || null,
       });
+      setSummary(summaryRes);
       setIsSimulationMode(summaryRes.sesMode !== 'live');
     } catch (err) {
       notify({
@@ -166,7 +162,7 @@ export function AppProvider({ children }) {
       try {
         const res = await campaignsApi.list();
         if (res?.campaigns) {
-          setCampaigns(res.campaigns);
+          setCampaigns(decorateCampaigns(res.campaigns));
         }
       } catch {
         // Ignore transient poll errors
@@ -199,24 +195,43 @@ export function AppProvider({ children }) {
     setSegments([]);
     setAutomations([]);
     setSettings(EMPTY_SETTINGS);
+    setSummary(null);
     notify({ type: 'info', message: 'You have been logged out.' });
   };
+
+  // Reload what depends on contacts: group counts, contact list, sidebar summary.
+  const refreshAudience = useCallback(async () => {
+    try {
+      const [contactsRes, groupsRes, summaryRes] = await Promise.all([
+        contactsApi.list({ pageSize: 100 }),
+        groupsApi.list(),
+        dashboardApi.summary(),
+      ]);
+      setContacts(contactsRes.contacts || []);
+      setGroups(groupsRes.groups || []);
+      setSummary(summaryRes);
+    } catch {
+      // keep what we have
+    }
+  }, []);
 
   // Contacts mutations
   const createContact = async (payload) => {
     const res = await contactsApi.create(payload);
     setContacts((prev) => [res.contact, ...prev]);
+    refreshAudience();
     notify({ type: 'success', title: 'Contact added', message: `${res.contact.name} was added.` });
     return res.contact;
   };
 
-  const addImportedContacts = async (newContactsList) => {
-    const res = await contactsApi.importBulk(newContactsList);
-    setContacts((prev) => [...res.contacts, ...prev]);
+  const addImportedContacts = async (payload) => {
+    const res = await contactsApi.importBulk(payload);
+    await refreshAudience();
+    const skipped = (res.duplicates || 0) + (res.invalid || 0);
     notify({
-      type: 'success',
-      title: 'CSV Imported',
-      message: `${res.importedCount} contacts imported successfully.`,
+      type: res.imported > 0 ? 'success' : 'warning',
+      title: 'CSV import finished',
+      message: `${res.imported} imported${res.duplicates ? `, ${res.duplicates} already existed` : ''}${res.invalid ? `, ${res.invalid} invalid` : ''}.${skipped && !res.imported ? ' Nothing new was added.' : ''}`,
     });
     return res;
   };
@@ -255,35 +270,35 @@ export function AppProvider({ children }) {
   // Campaigns mutations
   const createCampaign = async (payload) => {
     const res = await campaignsApi.create(payload);
-    setCampaigns((prev) => [res.campaign, ...prev]);
+    setCampaigns((prev) => [decorateCampaign(res.campaign), ...prev]);
     notify({
       type: 'success',
       title: res.campaign.status === 'Sending' ? 'Campaign queued' : 'Campaign scheduled',
       message:
         res.campaign.status === 'Sending'
-          ? `Dispatching to ${res.campaign.recipientsCount} recipients via Amazon SES cron.`
-          : `Scheduled for ${res.campaign.scheduledDate}.`,
+          ? `Sending to ${res.campaign.stats?.total ?? 0} recipients.`
+          : `Scheduled for ${res.campaign.sendAt ? new Date(res.campaign.sendAt).toLocaleString() : 'later'}.`,
     });
     return res.campaign;
   };
 
   const resumeCampaign = async (id) => {
     const res = await campaignsApi.resume(id);
-    setCampaigns((prev) => prev.map((c) => (c.id === id ? res.campaign : c)));
-    notify({ type: 'success', title: 'Campaign resumed', message: 'Cron worker is sending remaining emails.' });
+    setCampaigns((prev) => prev.map((c) => (c.id === id ? decorateCampaign(res.campaign) : c)));
+    notify({ type: 'success', title: 'Campaign resumed', message: 'Sending the remaining emails.' });
     return res.campaign;
   };
 
   const pauseCampaign = async (id) => {
     const res = await campaignsApi.pause(id);
-    setCampaigns((prev) => prev.map((c) => (c.id === id ? res.campaign : c)));
+    setCampaigns((prev) => prev.map((c) => (c.id === id ? decorateCampaign(res.campaign) : c)));
     notify({ type: 'warning', title: 'Campaign paused', message: 'Remaining recipients are held safely.' });
     return res.campaign;
   };
 
   const cancelCampaign = async (id) => {
     const res = await campaignsApi.cancel(id);
-    setCampaigns((prev) => prev.map((c) => (c.id === id ? res.campaign : c)));
+    setCampaigns((prev) => prev.map((c) => (c.id === id ? decorateCampaign(res.campaign) : c)));
     notify({ type: 'info', message: 'Remaining sends cancelled.' });
     return res.campaign;
   };
@@ -425,6 +440,8 @@ export function AppProvider({ children }) {
         logout,
         notify,
         loadWorkspace,
+        summary,
+        refreshAudience,
         isSimulationMode,
         setIsSimulationMode,
         dashboardMode,

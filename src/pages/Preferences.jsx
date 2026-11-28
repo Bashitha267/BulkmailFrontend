@@ -1,158 +1,131 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
 import { Check } from 'lucide-react';
+import { publicApi } from '../services/api';
 
 export default function Preferences() {
-  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const token = params.get('t') || '';
 
-  const [newsletter, setNewsletter] = useState(true);
-  const [promotions, setPromotions] = useState(false);
-  const [orderUpdates, setOrderUpdates] = useState(true);
-  const [frequency, setFrequency] = useState('as_it_happens'); // 'as_it_happens' or 'monthly'
-  const [savedMessage, setSavedMessage] = useState(false);
+  const [info, setInfo] = useState(null);
+  const [topics, setTopics] = useState({});
+  const [frequency, setFrequency] = useState('any');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
-  const handleSave = (e) => {
-    e.preventDefault();
-    setSavedMessage(true);
-    setTimeout(() => setSavedMessage(false), 3000);
+  const apply = (r) => {
+    setInfo(r);
+    setTopics(Object.fromEntries((r.topics || []).map((t) => [t.key, t.subscribed])));
+    setFrequency(r.frequency || 'any');
   };
+
+  useEffect(() => {
+    if (!token) {
+      setError('This link isn’t valid any more.');
+      return;
+    }
+    publicApi.preferences(token).then(apply).catch((e) => setError(e.message));
+  }, [token]);
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      apply(await publicApi.savePreferences(token, { topics, frequency }));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (error && !info) {
+    return (
+      <div className="w-full max-w-md mx-auto my-6 bg-white rounded-3xl p-8 shadow-xl border border-gray-100 text-center text-sm text-gray-700">
+        {error}
+      </div>
+    );
+  }
+  if (!info) return <div className="text-xs text-gray-500 font-semibold">Loading…</div>;
 
   return (
     <div className="w-full max-w-md mx-auto my-6">
       <div className="bg-white rounded-3xl p-8 shadow-xl border border-gray-100 space-y-6">
-        {/* Top Header */}
         <div className="flex items-center justify-between">
           <div className="w-10 h-10 rounded-2xl bg-black text-white font-bold text-sm flex items-center justify-center">
-            AT
+            {(info.teamName || 'BM').slice(0, 2).toUpperCase()}
           </div>
-          <span className="text-xs font-mono font-medium text-gray-400">
-            r***@demo.org
-          </span>
+          <span className="text-xs font-mono font-medium text-gray-400">{info.email}</span>
         </div>
 
-        {/* Title */}
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900 leading-snug">
-            What would you like from Acme Team?
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 leading-snug">What would you like from {info.teamName}?</h1>
           <p className="text-xs text-gray-500 font-medium mt-1 leading-relaxed">
             Pick what’s useful. You can change this any time from the link in our emails.
           </p>
         </div>
 
-        {/* Choices List */}
         <form onSubmit={handleSave} className="space-y-4">
           <div className="space-y-2.5">
-            {/* Newsletter */}
-            <div
-              onClick={() => setNewsletter(!newsletter)}
-              className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-start gap-3.5 ${
-                newsletter ? 'border-2 border-black bg-white shadow-2xs' : 'border-gray-200 bg-[#fafafa] hover:bg-gray-100/60'
-              }`}
-            >
-              <div className={`w-4 h-4 rounded border flex items-center justify-center mt-0.5 shrink-0 ${
-                newsletter ? 'bg-black border-black text-white' : 'border-gray-400'
-              }`}>
-                {newsletter && <Check className="w-3 h-3 stroke-[3]" />}
-              </div>
-              <div>
-                <h3 className="font-bold text-xs text-gray-900">Monthly newsletter</h3>
-                <p className="text-[11px] text-gray-500 mt-0.5">Product news, once a month</p>
-              </div>
-            </div>
-
-            {/* Promotions */}
-            <div
-              onClick={() => setPromotions(!promotions)}
-              className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-start gap-3.5 ${
-                promotions ? 'border-2 border-black bg-white shadow-2xs' : 'border-gray-200 bg-[#fafafa] hover:bg-gray-100/60'
-              }`}
-            >
-              <div className={`w-4 h-4 rounded border flex items-center justify-center mt-0.5 shrink-0 ${
-                promotions ? 'bg-black border-black text-white' : 'border-gray-400'
-              }`}>
-                {promotions && <Check className="w-3 h-3 stroke-[3]" />}
-              </div>
-              <div>
-                <h3 className="font-bold text-xs text-gray-900">Offers and promotions</h3>
-                <p className="text-[11px] text-gray-500 mt-0.5">A few times a year, like Black Friday</p>
-              </div>
-            </div>
-
-            {/* Account updates */}
-            <div
-              onClick={() => setOrderUpdates(!orderUpdates)}
-              className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-start gap-3.5 ${
-                orderUpdates ? 'border-2 border-black bg-white shadow-2xs' : 'border-gray-200 bg-[#fafafa] hover:bg-gray-100/60'
-              }`}
-            >
-              <div className={`w-4 h-4 rounded border flex items-center justify-center mt-0.5 shrink-0 ${
-                orderUpdates ? 'bg-black border-black text-white' : 'border-gray-400'
-              }`}>
-                {orderUpdates && <Check className="w-3 h-3 stroke-[3]" />}
-              </div>
-              <div>
-                <h3 className="font-bold text-xs text-gray-900">Account and order updates</h3>
-                <p className="text-[11px] text-gray-500 mt-0.5">Receipts and important changes</p>
-              </div>
-            </div>
+            {info.topics.map((t) => {
+              const on = Boolean(topics[t.key]);
+              return (
+                <div
+                  key={t.key}
+                  onClick={() => setTopics((p) => ({ ...p, [t.key]: !on }))}
+                  className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-start gap-3.5 ${
+                    on ? 'border-2 border-black bg-white shadow-2xs' : 'border-gray-200 bg-[#fafafa] hover:bg-gray-100/60'
+                  }`}
+                >
+                  <div className={`w-4 h-4 rounded border flex items-center justify-center mt-0.5 shrink-0 ${on ? 'bg-black border-black text-white' : 'border-gray-400'}`}>
+                    {on && <Check className="w-3 h-3 stroke-[3]" />}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-xs text-gray-900">{t.name}</h3>
+                    <p className="text-[11px] text-gray-500 mt-0.5">{t.description}</p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
-          {/* Frequency Toggle */}
           <div className="pt-2">
             <span className="text-xs text-gray-500 font-medium block mb-2">Or get less email</span>
             <div className="inline-flex rounded-2xl bg-gray-100 p-1 w-full">
-              <button
-                type="button"
-                onClick={() => setFrequency('as_it_happens')}
-                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
-                  frequency === 'as_it_happens' ? 'bg-black text-white shadow-xs' : 'text-gray-600 hover:text-black'
-                }`}
-              >
-                As it happens
-              </button>
-              <button
-                type="button"
-                onClick={() => setFrequency('monthly')}
-                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
-                  frequency === 'monthly' ? 'bg-black text-white shadow-xs' : 'text-gray-600 hover:text-black'
-                }`}
-              >
-                Once a month at most
-              </button>
+              {[['any', 'As it happens'], ['monthly', 'Once a month at most']].map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setFrequency(val)}
+                  className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${frequency === val ? 'bg-black text-white shadow-xs' : 'text-gray-600 hover:text-black'}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
 
-          {savedMessage && (
-            <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-2xl text-xs text-center font-bold animate-in fade-in">
-              ✓ Preferences saved!
-            </div>
-          )}
+          {saved && <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-2xl text-xs text-center font-bold">✓ Preferences saved!</div>}
+          {error && <div className="p-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-2xl text-xs text-center font-bold">{error}</div>}
 
-          {/* Primary Action Button */}
-          <button
-            type="submit"
-            className="w-full py-3.5 rounded-2xl bg-black text-white hover:bg-zinc-800 text-xs font-bold transition-all shadow-md active:scale-[0.99]"
-          >
-            Save my choices
+          <button type="submit" disabled={saving} className="w-full py-3.5 rounded-2xl bg-black text-white hover:bg-zinc-800 text-xs font-bold transition-all shadow-md active:scale-[0.99] disabled:opacity-60">
+            {saving ? 'Saving…' : 'Save my choices'}
           </button>
         </form>
 
-        {/* Unsubscribe Everything Option */}
         <div className="text-center pt-2">
-          <button
-            onClick={() => navigate('/unsubscribed')}
-            className="text-xs font-bold text-rose-600 hover:text-rose-700 underline"
-          >
+          <Link to={`/unsubscribed?t=${encodeURIComponent(token)}`} className="text-xs font-bold text-rose-600 hover:text-rose-700 underline">
             Unsubscribe from everything
-          </button>
+          </Link>
           <p className="text-[11px] text-gray-400 mt-0.5">Takes effect straight away</p>
         </div>
       </div>
 
-      <p className="text-center text-[11px] text-gray-400 mt-6">
-        Acme Team · 45 Example Street, Colombo 03, Sri Lanka
-      </p>
+      {info.address && <p className="text-center text-[11px] text-gray-400 mt-6">{info.teamName} · {info.address}</p>}
     </div>
   );
 }

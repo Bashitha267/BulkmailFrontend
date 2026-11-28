@@ -94,7 +94,7 @@ export default function ImportContactsModal({ isOpen, onClose }) {
   const [showPreview, setShowPreview] = useState(false);
 
   const [agreedConsent, setAgreedConsent] = useState(true);
-  const [selectedGroups, setSelectedGroups] = useState(['Newsletter']);
+  const [selectedGroups, setSelectedGroups] = useState([]);
   const [signupSource, setSignupSource] = useState('In-store signup sheet');
   const [signupDate, setSignupDate] = useState('November 2026');
 
@@ -114,7 +114,7 @@ export default function ImportContactsModal({ isOpen, onClose }) {
     setHeaders(parsed.headers);
     setRows(parsed.rows);
     setMappings(initialMappings);
-    setShowPreview(false);
+    setShowPreview(true);
   };
 
   const handleFileChange = (e) => {
@@ -211,6 +211,10 @@ export default function ImportContactsModal({ isOpen, onClose }) {
       notify({ type: 'warning', message: 'No valid new contacts to import.' });
       return;
     }
+    if (selectedGroups.length === 0) {
+      notify({ type: 'warning', message: 'Pick at least one group so these contacts can be included in campaigns.' });
+      return;
+    }
 
     const findCol = (type) => Object.keys(mappings).find((idx) => mappings[idx] === type);
     const emailIdx = findCol('email');
@@ -220,58 +224,42 @@ export default function ImportContactsModal({ isOpen, onClose }) {
     const cityIdx = findCol('city');
     const planIdx = findCol('plan');
 
+    const customIdx = Object.keys(mappings).filter((idx) => String(mappings[idx]).startsWith('custom:'));
     const newContacts = validation.ready.map(({ row }) => {
       const email = (row[emailIdx] || '').trim();
-      let fullName = '';
-      if (fullIdx !== undefined && row[fullIdx]) {
-        fullName = row[fullIdx].trim();
-      } else {
-        const first = firstIdx !== undefined ? (row[firstIdx] || '').trim() : '';
-        const last = lastIdx !== undefined ? (row[lastIdx] || '').trim() : '';
-        fullName = `${first} ${last}`.trim();
+      let first = firstIdx !== undefined ? (row[firstIdx] || '').trim() : '';
+      let last = lastIdx !== undefined ? (row[lastIdx] || '').trim() : '';
+      if (fullIdx !== undefined && row[fullIdx] && !first && !last) {
+        const parts = row[fullIdx].trim().split(/\s+/);
+        first = parts[0] || '';
+        last = parts.slice(1).join(' ');
       }
-      if (!fullName) {
-        fullName = email.split('@')[0];
-      }
-
-      const nameParts = fullName.split(/\s+/);
-      const initials =
-        nameParts.length >= 2
-          ? `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
-          : fullName.slice(0, 2).toUpperCase();
-
-      const city = cityIdx !== undefined && row[cityIdx] ? row[cityIdx].trim() : '—';
-      const rawPlan = planIdx !== undefined && row[planIdx] ? row[planIdx].trim() : 'Free';
-      const plan = ['Free', 'Pro', 'Business'].includes(rawPlan) ? rawPlan : rawPlan || 'Free';
-
+      const customFields = {};
+      customIdx.forEach((idx) => {
+        const key = String(mappings[idx]).slice(7).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+        if (key && row[idx]) customFields[key] = String(row[idx]).trim();
+      });
       return {
-        id: `${email.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        name: fullName,
-        initials,
         email,
-        city,
-        plan,
-        groups: selectedGroups.length > 0 ? selectedGroups : ['Newsletter'],
-        consent: signupSource,
-        consentDate: signupDate,
-        lastActivity: 'Imported just now',
-        status: 'Subscribed',
-        stats: { received: 0, opened: 0, clicked: 0 },
-        activity: [
-          {
-            id: Date.now(),
-            type: 'group',
-            title: `Imported via ${fileName}`,
-            time: 'Just now',
-            category: 'Changes',
-          },
-        ],
+        firstName: first,
+        lastName: last,
+        city: cityIdx !== undefined && row[cityIdx] ? row[cityIdx].trim() : '',
+        plan: planIdx !== undefined && row[planIdx] ? row[planIdx].trim() : '',
+        customFields,
       };
     });
 
     setImporting(true);
     try {
-      await addImportedContacts(newContacts);
+      await addImportedContacts({
+        contacts: newContacts,
+        groupIds: selectedGroups,
+        consent: { source: signupSource, when: signupDate },
+        newFields: customIdx.map((idx) => {
+          const name = String(mappings[idx]).slice(7).trim();
+          return { key: name.toLowerCase().replace(/[^a-z0-9]+/g, '_'), name };
+        }),
+      });
       resetFile();
       onClose();
       navigate('/contacts');
@@ -284,7 +272,7 @@ export default function ImportContactsModal({ isOpen, onClose }) {
 
   if (!isOpen) return null;
 
-  const availableGroups = groups.map((g) => g.name);
+  const availableGroups = groups;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
@@ -407,7 +395,9 @@ export default function ImportContactsModal({ isOpen, onClose }) {
 
               {/* Optional Live CSV Table Preview */}
               {showPreview && (
-                <div className="mb-3 bg-white border border-gray-200 rounded-2xl overflow-x-auto max-h-44 text-[11px]">
+                <>
+                <p className="text-[11px] text-gray-500 font-medium mb-1.5">Preview: first {Math.min(10, rows.length)} of {rows.length} rows</p>
+                <div className="mb-3 bg-white border border-gray-200 rounded-2xl overflow-auto max-h-48 text-[11px]">
                   <table className="w-full text-left">
                     <thead className="bg-gray-50 text-gray-500 font-bold border-b border-gray-200">
                       <tr>
@@ -431,6 +421,7 @@ export default function ImportContactsModal({ isOpen, onClose }) {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
 
               <div className="bg-gray-50 rounded-2xl p-3 border border-gray-100 space-y-2 text-xs">
@@ -462,7 +453,7 @@ export default function ImportContactsModal({ isOpen, onClose }) {
                           <option value="firstName">First name</option>
                           <option value="lastName">Last name</option>
                           <option value="fullName">Full name</option>
-                          <option value="city">City (custom field)</option>
+                          <option value="city">City</option>
                           <option value="plan">Plan</option>
                           <option value={`custom:${header}`}>+ Create field "{header}"</option>
                           <option value="skip">Do not import</option>
@@ -516,7 +507,11 @@ export default function ImportContactsModal({ isOpen, onClose }) {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                {availableGroups.map((group) => {
+                {availableGroups.length === 0 && (
+                  <p className="text-xs text-gray-500">No groups yet. Create a group first, or imported people won’t be in any campaign.</p>
+                )}
+                {availableGroups.map((g) => {
+                  const group = g.id;
                   const isSelected = selectedGroups.includes(group);
                   return (
                     <button
@@ -536,7 +531,7 @@ export default function ImportContactsModal({ isOpen, onClose }) {
                       >
                         {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
                       </div>
-                      {group}
+                      {g.name}
                     </button>
                   );
                 })}
